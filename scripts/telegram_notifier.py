@@ -30,7 +30,8 @@ def _send_api_request(method: str, payload: dict) -> dict | None:
     if not token or not chat_id:
         return None
 
-    url = f"https://api.telegram.org/bot{token}/{method}"
+    base_url = config.TELEGRAM_API_BASE_URL.rstrip("/")
+    url = f"{base_url}{token}/{method}" if base_url.endswith("bot") else f"{base_url}/bot{token}/{method}"
     payload["chat_id"] = chat_id
 
     try:
