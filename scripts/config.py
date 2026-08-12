@@ -6,11 +6,21 @@ directly, so provider/model/key changes only ever touch .env.
 """
 
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Ensure UTF-8 output encoding across Windows/Linux terminals for emoji logging safety
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 PROJECT_ROOT = Path(__file__).parent.parent
 load_dotenv(PROJECT_ROOT / ".env")
+
 
 # Prevent PyTorch CUDA memory fragmentation on GPUs with <= 6GB VRAM
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
