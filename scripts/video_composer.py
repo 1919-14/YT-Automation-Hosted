@@ -155,10 +155,28 @@ def compose(video_id: int) -> Path:
         print(f"[video_composer] Building 1080x1920 background timeline from {len(shots)} shots ...")
 
         # Get total duration of avatar video/audio to ensure seamless alignment
-        import cv2
-        cap = cv2.VideoCapture(str(avatar_path))
-        total_audio_duration = cap.get(7) / cap.get(5) if cap.get(5) > 0 else 66.0
-        cap.release()
+        total_audio_duration = 66.0
+        try:
+            import cv2
+            cap = cv2.VideoCapture(str(avatar_path))
+            if cap.isOpened():
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+                if fps > 0 and frames > 0:
+                    total_audio_duration = frames / fps
+            cap.release()
+        except Exception:
+            try:
+                cmd = [ffmpeg_bin, "-i", str(avatar_path)]
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                import re
+                m = re.search(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)", res.stderr)
+                if m:
+                    h, m_m, s = float(m.group(1)), float(m.group(2)), float(m.group(3))
+                    total_audio_duration = h * 3600 + m_m * 60 + s
+            except Exception:
+                pass
+
 
         input_args = []
         filter_complex = []
