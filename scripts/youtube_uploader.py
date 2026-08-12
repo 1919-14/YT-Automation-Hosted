@@ -35,8 +35,27 @@ CLIENT_SECRET_FILE = config.PROJECT_ROOT / "data" / "client_secret.json"
 TOKEN_FILE         = config.PROJECT_ROOT / "data" / "token.json"
 
 
+def ensure_oauth_files():
+    """Restores OAuth client secret and token files from environment secrets if missing on disk."""
+    data_dir = config.PROJECT_ROOT / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    token_json_env = os.getenv("YOUTUBE_TOKEN_JSON")
+    if token_json_env and not TOKEN_FILE.exists():
+        print("[youtube_uploader] Restoring data/token.json from environment secret ...")
+        with open(TOKEN_FILE, "w", encoding="utf-8") as f:
+            f.write(token_json_env)
+
+    client_secret_env = os.getenv("YOUTUBE_CLIENT_SECRET_JSON")
+    if client_secret_env and not CLIENT_SECRET_FILE.exists():
+        print("[youtube_uploader] Restoring data/client_secret.json from environment secret ...")
+        with open(CLIENT_SECRET_FILE, "w", encoding="utf-8") as f:
+            f.write(client_secret_env)
+
+
 def get_authenticated_service():
     """Authenticates the user via OAuth2 and returns an active YouTube API service."""
+    ensure_oauth_files()
     creds = None
 
     if TOKEN_FILE.exists():
