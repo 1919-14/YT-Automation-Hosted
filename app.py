@@ -417,10 +417,12 @@ with gr.Blocks(
 
     with gr.Row():
         sched_refresh_btn = gr.Button("🔄 Refresh Schedule", scale=0, size="sm")
+        trigger_sched_btn = gr.Button("⚡ Trigger Next Slot Now", scale=0, size="sm", elem_classes="btn-primary")
         gr.Markdown(
             "_Background daemon wakes up at these 6 randomized daily minute marks, generates Pexels videos live, and keeps HF Space alive 24/7/365._",
             scale=1
         )
+
 
 
     # ── Video History ───────────────────────────────────────────────────────
@@ -506,6 +508,12 @@ with gr.Blocks(
         fn=get_sched_df,
         outputs=sched_table,
     )
+
+    trigger_sched_btn.click(
+        fn=lambda: trigger_pipeline(True, "pexels"),
+        outputs=launch_status,
+    )
+
 
     refresh_btn.click(
         fn=refresh_status,

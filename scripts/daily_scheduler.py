@@ -174,9 +174,40 @@ def start_scheduler():
             print("[scheduler] Background daemon thread launched.")
 
 
+def trigger_next_slot_now(is_short: bool = True):
+    """Fires an immediate test run of the scheduler pipeline."""
+    print("[scheduler] ⚡ Immediate test trigger requested!")
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    today_schedule = compute_daily_schedule(now_utc.date())
+
+    target_slot = today_schedule[0]
+    for s in today_schedule:
+        if s["unique_key"] not in _EXECUTED_SLOTS:
+            target_slot = s
+            break
+
+    _EXECUTED_SLOTS.add(target_slot["unique_key"])
+    print(f"[scheduler] 🚀 Triggering {target_slot['name']} live right now...")
+    orchestrator.run_pipeline(
+        is_short=is_short,
+        upload=True,
+        privacy="public",
+        style="pexels",
+    )
+
+
 if __name__ == "__main__":
-    print("=== Daily 6-Slot Schedule Preview (Today) ===")
-    sched = compute_daily_schedule()
-    for s in sched:
-        print(f"Slot {s['slot_id']} | {s['format_label']:<15} | {s['utc_str']:<10} | {s['ist_str']:<14} | {s['est_str']:<14} | {s['name']}")
+    import argparse
+    parser = argparse.ArgumentParser(description="24/7 Daily Auto-Pilot Scheduler")
+    parser.add_argument("--trigger-now", action="store_true", help="Trigger an immediate slot run for testing")
+    args = parser.parse_args()
+
+    if args.trigger_now:
+        trigger_next_slot_now(is_short=True)
+    else:
+        print("=== Daily 6-Slot Schedule Preview (Today) ===")
+        sched = compute_daily_schedule()
+        for s in sched:
+            print(f"Slot {s['slot_id']} | {s['format_label']:<15} | {s['utc_str']:<10} | {s['ist_str']:<14} | {s['est_str']:<14} | {s['name']}")
+
 
