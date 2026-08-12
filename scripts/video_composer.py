@@ -241,14 +241,9 @@ def compose(video_id: int) -> Path:
         f"[1:v]scale=420:420,format=rgba,"
         f"geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte(hypot(X-210,Y-210),206),255,0)'[avatar_circular];"
         f"[0:v][avatar_circular]overlay=40:1380:shortest=1[v_overlay];"
-        # NightLoom brand header: bold white text at top-center with dark semi-transparent pill bg
-        f"[v_overlay]"
-        f"drawbox=x=350:y=52:w=380:h=64:color=0x00000099:t=fill,"
-        f"drawtext=text='N I G H T   L O O M':fontfile='C\\:/Windows/Fonts/arialbd.ttf':"
-        f"fontsize=32:fontcolor=white:x=(w-tw)/2:y=68"
-        f"[v_branded];"
-        f"[v_branded]ass='{ass_path_str}'[v_out]"
+        f"[v_overlay]ass='{ass_path_str}'[v_out]"
     )
+
 
     final_cmd = [
         ffmpeg_bin, "-y",
