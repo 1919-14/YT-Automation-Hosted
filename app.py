@@ -64,7 +64,11 @@ def ensure_baseline_templates():
         except Exception as e:
             print(f"[HF-Space] Warning downloading logo: {e}")
 
+from scripts import config, memory, daily_scheduler
+
 ensure_baseline_templates()
+daily_scheduler.start_scheduler()
+
 
 
 # ── Global log buffer ────────────────────────────────────────────────────────
@@ -393,6 +397,32 @@ with gr.Blocks(
         status_label = gr.Markdown(get_pipeline_status_label())
         refresh_btn = gr.Button("🔄 Refresh", scale=0, size="sm")
 
+    # ── 24/7 Daily Auto-Pilot Schedule ───────────────────────────────────────
+    gr.HTML('<div class="section-label" style="margin-top:20px">🤖 24/7 Daily Auto-Pilot Schedule (5 Shorts + 1 Long)</div>')
+
+    def get_sched_df():
+        data = daily_scheduler.get_schedule_display_data()
+        return [
+            [d["Slot"], d["Format"], d["Target Window / Name"], d["Trigger Time (UTC)"], d["India Time (IST)"], d["US Time (EST)"], d["Status"]]
+            for d in data
+        ]
+
+    sched_table = gr.DataFrame(
+        value=get_sched_df(),
+        headers=["Slot", "Format", "Target Window / Name", "UTC Time", "India Time (IST)", "US Time (EST)", "Status"],
+        datatype=["str", "str", "str", "str", "str", "str", "str"],
+        interactive=False,
+        elem_classes="custom-df",
+    )
+
+    with gr.Row():
+        sched_refresh_btn = gr.Button("🔄 Refresh Schedule", scale=0, size="sm")
+        gr.Markdown(
+            "_Background daemon wakes up at these 6 randomized daily minute marks, generates Pexels videos live, and keeps HF Space alive 24/7/365._",
+            scale=1
+        )
+
+
     # ── Video History ───────────────────────────────────────────────────────
     gr.HTML('<div class="section-label" style="margin-top:20px">📊 Video History</div>')
 
@@ -472,6 +502,11 @@ with gr.Blocks(
         outputs=retry_status,
     )
 
+    sched_refresh_btn.click(
+        fn=get_sched_df,
+        outputs=sched_table,
+    )
+
     refresh_btn.click(
         fn=refresh_status,
         outputs=[history_table, status_label],
@@ -488,6 +523,10 @@ with gr.Blocks(
 
     status_timer = gr.Timer(value=10)
     status_timer.tick(fn=refresh_status, outputs=[history_table, status_label])
+
+    sched_timer = gr.Timer(value=30)
+    sched_timer.tick(fn=get_sched_df, outputs=sched_table)
+
 
 
 if __name__ == "__main__":
