@@ -238,9 +238,16 @@ async def generic_message_handler(update: Update, context: ContextTypes.DEFAULT_
         )
 
 
-def _build_app(token: str):
-    """Build a fresh Application instance with handlers registered."""
+def build_application() -> Application:
+    """Build and return the Application with all handlers registered.
+    Called by app.py (webhook mode on HF Space) or main() (polling for local dev).
+    """
     from telegram.request import HTTPXRequest
+
+    token = config.TELEGRAM_BOT_TOKEN
+    if not token:
+        print("Error: TELEGRAM_BOT_TOKEN is not set!", flush=True)
+        sys.exit(1)
 
     req = HTTPXRequest(
         connect_timeout=30.0,
@@ -269,95 +276,77 @@ def _build_app(token: str):
     return app
 
 
-async def _run_bot(token: str):
-    """Main async entrypoint — manages the full bot lifecycle manually.
-
-    Unlike run_polling(), this gives us full control over retries during
-    initialization (HF Spaces has slow/intermittent connectivity to
-    api.telegram.org) and avoids the asyncio event loop death spiral.
+async def register_webhook(bot):
+    """Tell Telegram where to send updates (our HF Space public URL).
+    Called once after app.initialize() in webhook mode.
     """
-    app = _build_app(token)
+    # HF Space public URL is exposed via the SPACE_HOST env var
+    space_host = os.environ.get("SPACE_HOST", "").strip()
+    if not space_host:
+        print("[telegram_bot] SPACE_HOST env var not set — cannot register webhook!", flush=True)
+        print("[telegram_bot] Set it in HF Space Secrets as: SPACE_HOST=your-space-name.hf.space", flush=True)
+        return
 
-    # Step 1: Initialize with unlimited retries (HF networking can be very slow)
-    attempt = 0
-    while True:
-        attempt += 1
-        try:
-            print(f"[telegram_bot] Connecting to Telegram API (attempt #{attempt})...", flush=True)
-            await app.initialize()
-            print("[telegram_bot] Connected to Telegram API!", flush=True)
-            break
-        except Exception as e:
-            wait = min(10 * attempt, 60)  # back off: 10s, 20s, 30s ... max 60s
-            print(f"[telegram_bot] Connection failed ({type(e).__name__}: {e}). Retrying in {wait}s...", flush=True)
-            await asyncio.sleep(wait)
+    webhook_url = f"https://{space_host}/webhook"
+    try:
+        await bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=False,
+        )
+        print(f"[telegram_bot] Webhook registered: {webhook_url}", flush=True)
 
-    # Step 2: Start the application (registers handlers with the event loop)
-    await app.start()
-
-    # Step 3: Start polling for updates
-    await app.updater.start_polling(
-        poll_interval=1.0,
-        timeout=10,
-        bootstrap_retries=-1,  # infinite retries for getUpdates bootstrap
-        allowed_updates=Update.ALL_TYPES,
-    )
-
-    # Step 4: Send startup notification
-    chat_id = config.TELEGRAM_CHAT_ID
-    if chat_id:
-        try:
-            await app.bot.send_message(
+        # Send startup notification now that webhook is live
+        chat_id = config.TELEGRAM_CHAT_ID
+        if chat_id:
+            await bot.send_message(
                 chat_id=chat_id,
                 text=(
                     "⚡ *Night Loom Control Center Online!*\n\n"
-                    "Hugging Face Space is connected and ready. Send /menu to start!"
+                    f"Webhook active at `{webhook_url}`\n"
+                    "Send /menu to start generating videos!"
                 ),
                 parse_mode="Markdown",
             )
-            print(f"[telegram_bot] Startup notification sent to chat_id: {chat_id}", flush=True)
-        except Exception as e:
-            print(f"[telegram_bot] Could not send startup notification: {e}", flush=True)
+            print(f"[telegram_bot] Startup notification sent to {chat_id}", flush=True)
+    except Exception as e:
+        print(f"[telegram_bot] Failed to register webhook: {e}", flush=True)
 
-    print("[telegram_bot] Bot is now polling for updates!", flush=True)
 
-    # Step 5: Block forever (the updater runs in the background)
+# ─────────────────────────────────────────────────────────
+# Local development entry point (uses polling — not for HF!)
+# ─────────────────────────────────────────────────────────
+async def _run_local():
+    """Run bot with polling — ONLY for local development on your PC."""
+    app = build_application()
+    await app.initialize()
+    # Delete any webhook so polling works
+    await app.bot.delete_webhook(drop_pending_updates=False)
+    await app.start()
+    await app.updater.start_polling(
+        poll_interval=1.0,
+        timeout=10,
+        allowed_updates=Update.ALL_TYPES,
+    )
+    print("[telegram_bot] Local polling started! Send /menu to your bot.", flush=True)
     try:
         while True:
             await asyncio.sleep(3600)
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
-        print("[telegram_bot] Shutting down...", flush=True)
         await app.updater.stop()
         await app.stop()
         await app.shutdown()
 
 
 def main():
-    import time
-
-    token = config.TELEGRAM_BOT_TOKEN
-    if not token:
-        print("Error: TELEGRAM_BOT_TOKEN is not set in .env file.", flush=True)
-        print("Create a bot via @BotFather on Telegram, copy token to .env, and re-run.", flush=True)
-        sys.exit(1)
-
+    """Entry point for LOCAL development only. HF Space uses app.py instead."""
     print("=======================================================", flush=True)
-    print("NIGHT LOOM TELEGRAM CONTROL BOT STARTING...", flush=True)
-    print(f"   Authorized Chat ID: {config.TELEGRAM_CHAT_ID or 'ANY (Initial Setup)'}", flush=True)
+    print("NIGHT LOOM BOT — LOCAL DEV MODE (polling)", flush=True)
+    print(f"   Authorized Chat ID: {config.TELEGRAM_CHAT_ID or 'ANY'}", flush=True)
     print("=======================================================", flush=True)
-
-    attempt = 0
-    while True:
-        attempt += 1
-        print(f"[telegram_bot] === Outer restart #{attempt} ===", flush=True)
-        try:
-            asyncio.run(_run_bot(token))
-            break  # clean exit
-        except Exception as e:
-            print(f"[telegram_bot] Fatal crash ({type(e).__name__}: {e}). Restarting in 10s...", flush=True)
-            time.sleep(10)
+    asyncio.run(_run_local())
 
 
 if __name__ == "__main__":
