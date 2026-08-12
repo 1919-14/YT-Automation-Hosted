@@ -1,0 +1,24 @@
+.env
+data/memory.db
+data/yt_client_secret.json
+data/yt_token.json
+data/client_secret.json
+data/token.json
+assets/images/*
+assets/audio/*
+assets/video/*
+assets/visuals/*
+!assets/images/.gitkeep
+!assets/audio/.gitkeep
+!assets/video/.gitkeep
+!assets/visuals/.gitkeep
+output/*
+!output/.gitkeep
+logs/*
+!logs/.gitkeep
+__pycache__/
+*.pyc
+.venv/
+venv/
+# Wav2Lip model weights & repo (cloned at runtime by wav2lip_setup.py)
+models/
