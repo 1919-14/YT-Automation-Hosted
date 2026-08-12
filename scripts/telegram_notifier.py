@@ -24,13 +24,14 @@ _THROTTLE_DELAY_S = 3.0  # Minimum delay between message edits to satisfy Telegr
 
 def _send_api_request(method: str, payload: dict) -> dict | None:
     """Send an HTTP request to Telegram Bot API. Returns parsed JSON response dict."""
-    token = config.TELEGRAM_BOT_TOKEN
-    chat_id = config.TELEGRAM_CHAT_ID
+    token = getattr(config, "TELEGRAM_BOT_TOKEN", "")
+    chat_id = getattr(config, "TELEGRAM_CHAT_ID", "")
 
     if not token or not chat_id:
         return None
 
-    base_url = config.TELEGRAM_API_BASE_URL.rstrip("/")
+    base_url = getattr(config, "TELEGRAM_API_BASE_URL", "https://api.telegram.org/bot").rstrip("/")
+
     url = f"{base_url}{token}/{method}" if base_url.endswith("bot") else f"{base_url}/bot{token}/{method}"
     payload["chat_id"] = chat_id
 
