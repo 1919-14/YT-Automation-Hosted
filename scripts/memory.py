@@ -15,15 +15,25 @@ from contextlib import contextmanager
 
 DB_PATH = Path(__file__).parent.parent / "data" / "memory.db"
 SCHEMA_PATH = Path(__file__).parent.parent / "data" / "schema.sql"
+SEED_PATH = Path(__file__).parent.parent / "data" / "initial_seed.sql"
 
 
 def init_db():
-    """Create tables if they don't exist yet. Safe to call every run."""
+    """Create tables and populate with seed data if DB does not exist yet."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    is_new = not DB_PATH.exists() or DB_PATH.stat().st_size == 0
     conn = sqlite3.connect(DB_PATH)
-    with open(SCHEMA_PATH) as f:
-        conn.executescript(f.read())
+    if is_new and SEED_PATH.exists():
+        with open(SEED_PATH, "r", encoding="utf-8") as f:
+            conn.executescript(f.read())
+        print(f"[memory] Initialized database from seed SQL with existing video history!")
+    elif is_new and SCHEMA_PATH.exists():
+        with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
+            conn.executescript(f.read())
+        print(f"[memory] Initialized fresh database schema.")
     conn.commit()
     conn.close()
+
 
 
 @contextmanager
