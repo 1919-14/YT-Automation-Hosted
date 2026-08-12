@@ -294,11 +294,7 @@ body, .gradio-container {
 """
 
 with gr.Blocks(
-    theme=gr.themes.Base(
-        primary_hue=gr.themes.colors.sky,
-        neutral_hue=gr.themes.colors.slate,
-        font=gr.themes.GoogleFont("Inter"),
-    ),
+    theme=gr.themes.Soft(),
     css=CUSTOM_CSS,
     title="🌌 Night Loom Control Engine",
 ) as demo:
@@ -434,9 +430,12 @@ with gr.Blocks(
         outputs=log_box,
     )
 
-    # Auto-refresh every 5 seconds
-    demo.load(fn=refresh_logs, outputs=log_box, every=5)
-    demo.load(fn=refresh_status, outputs=[history_table, status_label], every=10)
+    # Auto-refresh using Gradio 5 Timer
+    log_timer = gr.Timer(value=5)
+    log_timer.tick(fn=refresh_logs, outputs=log_box)
+
+    status_timer = gr.Timer(value=10)
+    status_timer.tick(fn=refresh_status, outputs=[history_table, status_label])
 
 
 if __name__ == "__main__":
