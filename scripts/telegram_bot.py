@@ -201,7 +201,15 @@ def main():
     print(f"   Authorized Chat ID: {config.TELEGRAM_CHAT_ID or 'ANY (Initial Setup)'}")
     print("=======================================================")
 
-    app = Application.builder().token(token).build()
+    from telegram.request import HTTPXRequest
+
+    req = HTTPXRequest(
+        connect_timeout=30.0,
+        read_timeout=30.0,
+        write_timeout=30.0,
+        pool_timeout=30.0,
+    )
+    app = Application.builder().token(token).request(req).get_updates_request(req).build()
 
     app.add_handler(CommandHandler(["start", "menu"], start_command))
     app.add_handler(CommandHandler("status", status_command))
@@ -209,8 +217,18 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback))
 
     print("[telegram_bot] Bot listener running! Send /menu to your bot on Telegram.")
-    app.run_polling()
+    
+    # Resilient polling loop to handle cloud container network startup hiccups
+    while True:
+        try:
+            app.run_polling(bootstrap_retries=10, timeout=30)
+            break
+        except Exception as e:
+            print(f"[telegram_bot] Connection hiccup ({e}). Retrying in 5 seconds...")
+            time.sleep(5)
 
 
 if __name__ == "__main__":
+    import time
     main()
+
