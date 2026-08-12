@@ -1,81 +1,173 @@
 """
-llm_client.py — thin wrapper around the OpenAI-compatible chat completions
-endpoint (OpenCode Zen / DeepSeek V4 by default, per .env).
+llm_client.py — 3-Tier Multi-Provider LLM Waterfall Client.
 
-Everything that needs an LLM call goes through chat() or chat_json()
-here, not through the SDK directly — keeps retry/error handling and
-provider swaps in one place.
+Every LLM call (script, decisions, facts, metadata) goes through:
+
+  Tier 1 → OpenCode Zen (deepseek-v4-flash-free)
+  Tier 2 → Groq 10-Key Pool (openai/gpt-oss-120b)  — Keys 1-10
+  Tier 3 → Google Gemini AI Studio (gemini-2.5-flash-lite)
+
+Rules:
+  - Always starts fresh at Tier 1 for every call.
+  - Each candidate gets exactly 1 attempt — no retries, no sleep.
+  - If a candidate fails (429, 5xx, timeout, empty), it instantly
+    cascades to the next key/provider in under 0.5s.
+  - If a JSON call returns text that can't be parsed as JSON,
+    the next candidate is tried immediately.
+  - JSON is clean regardless of which tier handled the call.
 """
 
 import json
-import time
 from openai import OpenAI
 from . import config
 
-_client = None
+
+# ── Candidate builder ──────────────────────────────────────────────────────────
+
+def _build_waterfall() -> list[dict]:
+    """
+    Returns the full ordered list of LLM candidates to try.
+    Each entry: {"label": str, "client": OpenAI, "model": str}
+    """
+    candidates = []
+
+    # ── Tier 1: OpenCode Zen ──────────────────────────────────────────────────
+    if config.LLM_API_KEY and config.LLM_BASE_URL:
+        candidates.append({
+            "label": f"Tier 1 — OpenCode Zen ({config.LLM_MODEL})",
+            "client": OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY),
+            "model": config.LLM_MODEL,
+        })
+
+    # ── Tier 2: Groq 10-Key Pool ──────────────────────────────────────────────
+    for idx, key in enumerate(config.GROQ_API_KEYS, start=1):
+        candidates.append({
+            "label": f"Tier 2 — Groq Key {idx} ({config.GROQ_MODEL})",
+            "client": OpenAI(base_url=config.GROQ_BASE_URL, api_key=key),
+            "model": config.GROQ_MODEL,
+        })
+
+    # ── Tier 3: Google Gemini AI Studio ───────────────────────────────────────
+    if config.GEMINI_API_KEY:
+        candidates.append({
+            "label": f"Tier 3 — Gemini AI Studio ({config.GEMINI_MODEL})",
+            "client": OpenAI(base_url=config.GEMINI_BASE_URL, api_key=config.GEMINI_API_KEY),
+            "model": config.GEMINI_MODEL,
+        })
+
+    return candidates
 
 
-def get_client():
-    global _client
-    if _client is None:
-        _client = OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY)
-    return _client
+# ── Core waterfall call ────────────────────────────────────────────────────────
 
+def chat(messages: list[dict], temperature: float = 0.9, **kwargs) -> str:
+    """
+    Plain-text LLM completion with 3-tier waterfall failover.
+    messages = [{"role": "user", "content": "..."}]
 
-def chat(messages, temperature=0.9, max_retries=5, **kwargs):
-    """Plain text completion. messages = [{"role": "user", "content": "..."}]"""
-    client = get_client()
-    last_err = None
-    for attempt in range(max_retries):
+    Tries each candidate exactly once. On any failure, instantly
+    cascades to the next. Raises only if every candidate fails.
+    """
+    candidates = _build_waterfall()
+    errors = []
+
+    for candidate in candidates:
+        label = candidate["label"]
         try:
-            resp = client.chat.completions.create(
-                model=config.LLM_MODEL,
+            resp = candidate["client"].chat.completions.create(
+                model=candidate["model"],
                 messages=messages,
                 temperature=temperature,
                 **kwargs,
             )
-            return resp.choices[0].message.content
-        except Exception as e:
-            last_err = e
-            err_str = str(e)
-            # If 429 rate limit / FreeUsageLimitError, back off longer (5s, 10s, 15s...)
-            if "429" in err_str or "Rate limit" in err_str or "FreeUsageLimitError" in err_str:
-                wait = (attempt + 1) * 5
-                print(f"[llm_client] Rate limit hit (attempt {attempt + 1}/{max_retries}). Backing off for {wait}s...")
+            content = resp.choices[0].message.content
+            if content and content.strip():
+                print(f"[llm] OK: {label}")
+                return content.strip()
             else:
-                wait = 2 ** attempt
-                print(f"[llm_client] attempt {attempt + 1}/{max_retries} failed: {e}. Retrying in {wait}s...")
-            time.sleep(wait)
-    raise RuntimeError(f"LLM call failed after {max_retries} attempts: {last_err}")
+                raise ValueError("Empty response returned")
+        except Exception as e:
+            err_short = str(e)[:120]
+            try:
+                print(f"[llm] FAIL: {label} -> {err_short}")
+            except Exception:
+                pass
+            errors.append(f"{label}: {err_short}")
+
+    raise RuntimeError(
+        f"All LLM providers exhausted across {len(candidates)} candidates.\n"
+        + "\n".join(errors)
+    )
 
 
-def chat_json(messages, temperature=0.7, max_retries=5, **kwargs):
-    """Completion that must return valid JSON. Strips markdown code fences
-    if the model wraps its output in them, and retries on parse failure."""
-    last_err = None
-    for attempt in range(max_retries):
+def chat_json(messages: list[dict], temperature: float = 0.7, **kwargs) -> dict:
+    """
+    JSON-validated LLM completion with 3-tier waterfall failover.
+
+    Tries each candidate exactly once. If a candidate's output cannot
+    be parsed as valid JSON, it immediately tries the next candidate.
+    Raises only if every candidate fails to return valid JSON.
+    """
+    candidates = _build_waterfall()
+    errors = []
+
+    for candidate in candidates:
+        label = candidate["label"]
+        raw = None
         try:
-            raw = chat(messages, temperature=temperature, max_retries=max_retries, **kwargs)
+            resp = candidate["client"].chat.completions.create(
+                model=candidate["model"],
+                messages=messages,
+                temperature=temperature,
+                **kwargs,
+            )
+            raw = resp.choices[0].message.content
+            if not raw or not raw.strip():
+                raise ValueError("Empty response returned")
+
+            # Strip markdown code fences if present
             cleaned = raw.strip()
             if cleaned.startswith("```"):
-                cleaned = cleaned.split("```")[1]
+                parts = cleaned.split("```")
+                cleaned = parts[1] if len(parts) > 1 else cleaned
                 if cleaned.startswith("json"):
                     cleaned = cleaned[4:]
             cleaned = cleaned.strip()
-            return json.loads(cleaned)
+
+            parsed = json.loads(cleaned)
+            print(f"[llm] OK JSON: {label}")
+            return parsed
+
         except json.JSONDecodeError as e:
-            last_err = e
-            print(f"[llm_client] JSON parse failed on attempt {attempt + 1}: {e}")
-            print(f"[llm_client] raw output was: {raw[:300] if 'raw' in locals() else 'None'}")
-            time.sleep(2)
+            snippet = (raw or "")[:200]
+            msg = f"{label}: JSON parse failed - {e} | raw: {snippet}"
+            try:
+                print(f"[llm] FAIL JSON: {msg}")
+            except Exception:
+                pass
+            errors.append(msg)
         except Exception as e:
-            last_err = e
-            time.sleep(2)
-    raise RuntimeError(f"chat_json failed after {max_retries} attempts: {last_err}")
+            err_short = str(e)[:120]
+            try:
+                print(f"[llm] FAIL: {label} -> {err_short}")
+            except Exception:
+                pass
+            errors.append(f"{label}: {err_short}")
+
+    raise RuntimeError(
+        f"All LLM providers exhausted across {len(candidates)} candidates.\n"
+        + "\n".join(errors)
+    )
 
 
+# ── Smoke test ─────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # quick smoke test
+    print("=== Waterfall Smoke Test ===")
+    # Text
     reply = chat([{"role": "user", "content": "Say 'pipeline online' and nothing else."}])
-    print("Response:", reply)
+    print("Text reply:", reply)
+
+    # JSON
+    data = chat_json([{"role": "user", "content": 'Return valid JSON: {"status": "ok", "pipeline": "online"}'}])
+    print("JSON reply:", data)

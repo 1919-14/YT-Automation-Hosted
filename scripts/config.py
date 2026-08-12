@@ -31,11 +31,26 @@ def _require(key):
     return val
 
 
-# --- LLM ---
+# --- LLM --- Tier 1: OpenCode Zen (primary)
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "opencode_zen")
 LLM_BASE_URL = _require("LLM_BASE_URL")
 LLM_API_KEY = _require("LLM_API_KEY")
-LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4")
+LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash-free")
+
+# --- LLM --- Tier 2: Groq 10-key pool (openai/gpt-oss-120b)
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+GROQ_MODEL = os.getenv("LLM_MODEL1", "openai/gpt-oss-120b")
+GROQ_API_KEYS = [
+    v for v in (
+        os.getenv(f"LLM_API_KEY{i}", "") for i in range(1, 11)
+    ) if v
+]
+
+# --- LLM --- Tier 3: Google Gemini AI Studio (ultimate fallback)
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+GEMINI_MODEL = os.getenv("LLM_MODEL2", "gemini-2.5-flash-lite")
+GEMINI_API_KEY = os.getenv("LLM_API_KEY11", "")
+
 
 # --- YouTube ---
 YT_CLIENT_SECRETS_FILE = PROJECT_ROOT / os.getenv(
@@ -46,9 +61,6 @@ YT_TOKEN_FILE = PROJECT_ROOT / os.getenv("YT_TOKEN_FILE", "data/yt_token.json")
 # --- Telegram Bot ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-# Proxy for HF Spaces where api.telegram.org is blocked.
-TELEGRAM_API_BASE_URL = os.getenv("TELEGRAM_API_BASE_URL", "https://tg-proxy.vssksn1919.workers.dev/bot")
-TELEGRAM_API_BASE_FILE_URL = os.getenv("TELEGRAM_API_BASE_FILE_URL", "https://tg-proxy.vssksn1919.workers.dev/file/bot")
 
 # --- Pexels ---
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
