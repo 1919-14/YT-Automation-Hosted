@@ -280,12 +280,8 @@ async def register_webhook(bot):
     """Tell Telegram where to send updates (our HF Space public URL).
     Called once after app.initialize() in webhook mode.
     """
-    # HF Space public URL is exposed via the SPACE_HOST env var
-    space_host = os.environ.get("SPACE_HOST", "").strip()
-    if not space_host:
-        print("[telegram_bot] SPACE_HOST env var not set — cannot register webhook!", flush=True)
-        print("[telegram_bot] Set it in HF Space Secrets as: SPACE_HOST=your-space-name.hf.space", flush=True)
-        return
+    # HF Space public URL is exposed via SPACE_HOST or falls back to known HF space domain
+    space_host = os.environ.get("SPACE_HOST", "").strip() or "vssksn-intellicredit-openenv.hf.space"
 
     webhook_url = f"https://{space_host}/webhook"
     try:
@@ -294,7 +290,7 @@ async def register_webhook(bot):
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=False,
         )
-        print(f"[telegram_bot] Webhook registered: {webhook_url}", flush=True)
+        print(f"[telegram_bot] Webhook registered successfully: {webhook_url}", flush=True)
 
         # Send startup notification now that webhook is live
         chat_id = config.TELEGRAM_CHAT_ID
