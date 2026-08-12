@@ -23,7 +23,8 @@ WORKDIR $HOME/app
 
 # Copy requirements and install dependencies
 COPY --chown=user requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy project files
 COPY --chown=user . $HOME/app
