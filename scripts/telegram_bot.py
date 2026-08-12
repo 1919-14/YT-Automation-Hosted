@@ -29,20 +29,12 @@ from . import memory as mem
 from . import orchestrator
 
 
-def _is_authorized(user_id: int, chat_id: int = None) -> bool:
-    """Security check: allow requests from TELEGRAM_CHAT_ID."""
-    allowed = str(config.TELEGRAM_CHAT_ID or "").strip().strip('"').strip("'")
-    if not allowed:
-        return True  # If chat ID is not set, allow initial setup
-    
-    uid_str = str(user_id)
-    cid_str = str(chat_id) if chat_id is not None else ""
-    
-    if uid_str == allowed or cid_str == allowed:
-        return True
-    
-    print(f"[telegram_bot] ⚠️ Unauthorized access attempt! user_id={user_id}, chat_id={chat_id}, expected TELEGRAM_CHAT_ID={allowed}")
-    return False
+def _is_authorized(user_id: int) -> bool:
+    """Security check: only allow requests from TELEGRAM_CHAT_ID."""
+    allowed_chat_id = config.TELEGRAM_CHAT_ID
+    if not allowed_chat_id:
+        return True  # If chat ID is not set yet, allow initial setup
+    return str(user_id) == str(allowed_chat_id)
 
 
 def _build_main_keyboard() -> InlineKeyboardMarkup:
@@ -80,12 +72,9 @@ def _run_pipeline_background(video_id=None, is_short=True, style=None):
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /start and /menu commands."""
-    user = update.effective_user
-    chat = update.effective_chat
-    print(f"[telegram_bot] 📩 Received /start or /menu from user={user.id} (@{user.username}) in chat={chat.id}")
-
-    if not _is_authorized(user.id, chat.id):
-        await update.message.reply_text(f"⛔ Unauthorized access. Your User ID ({user.id}) is not authorized in TELEGRAM_CHAT_ID.")
+    user_id = update.effective_user.id
+    if not _is_authorized(user_id):
+        await update.message.reply_text("⛔ Unauthorized access. Your User ID is not allowed.")
         return
 
     welcome_text = (
@@ -98,11 +87,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /status command — shows recent videos and DB state."""
-    user = update.effective_user
-    chat = update.effective_chat
-    print(f"[telegram_bot] 📩 Received /status from user={user.id} in chat={chat.id}")
-
-    if not _is_authorized(user.id, chat.id):
+    user_id = update.effective_user.id
+    if not _is_authorized(user_id):
         return
 
     mem.init_db()
@@ -129,11 +115,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def retry_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /retry <video_id> [style] command."""
-    user = update.effective_user
-    chat = update.effective_chat
-    print(f"[telegram_bot] 📩 Received /retry from user={user.id} in chat={chat.id}")
-
-    if not _is_authorized(user.id, chat.id):
+    user_id = update.effective_user.id
+    if not _is_authorized(user_id):
         return
 
     args = context.args
@@ -160,12 +143,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle 1-tap menu button clicks."""
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-    chat_id = query.message.chat_id if query.message else None
 
-    print(f"[telegram_bot] 🔘 Button pressed: '{query.data}' by user={user_id}")
-
-    if not _is_authorized(user_id, chat_id):
+    if not _is_authorized(query.from_user.id):
         await query.edit_message_text("⛔ Unauthorized.")
         return
 
@@ -210,23 +189,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log all unhandled bot errors to HF console."""
-    print(f"[telegram_bot] ❌ Exception handling update {update}: {context.error}")
-
-
-def main():
-    token = config.TELEGRAM_BOT_TOKEN
-    if not token:
-        print("❌ Error: TELEGRAM_BOT_TOKEN is not set in .env file.")
-        print("💡 Create a bot via @BotFather on Telegram, copy token to .env, and re-run.")
-        sys.exit(1)
-
-    print("=======================================================")
-    print("🤖 NIGHT LOOM TELEGRAM CONTROL BOT STARTING...")
-    print(f"   Authorized Chat ID: {config.TELEGRAM_CHAT_ID or 'ANY (Initial Setup)'}")
-    print("=======================================================")
-
+def _build_app(token: str):
+    """Build a fresh Application instance. Must be called on every retry since
+    run_polling() destroys the asyncio event loop when it exits."""
     from telegram.request import HTTPXRequest
 
     req = HTTPXRequest(
@@ -236,27 +201,43 @@ def main():
         pool_timeout=30.0,
     )
     app = Application.builder().token(token).request(req).get_updates_request(req).build()
-
     app.add_handler(CommandHandler(["start", "menu"], start_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("retry", retry_command))
     app.add_handler(CallbackQueryHandler(button_callback))
-    app.add_error_handler(global_error_handler)
+    return app
 
 
-    print("[telegram_bot] Bot listener running! Send /menu to your bot on Telegram.")
-    
-    # Resilient polling loop to handle cloud container network startup hiccups
+def main():
+    import time
+
+    token = config.TELEGRAM_BOT_TOKEN
+    if not token:
+        print("Error: TELEGRAM_BOT_TOKEN is not set in .env file.")
+        print("Create a bot via @BotFather on Telegram, copy token to .env, and re-run.")
+        sys.exit(1)
+
+    print("=======================================================")
+    print("NIGHT LOOM TELEGRAM CONTROL BOT STARTING...")
+    print(f"   Authorized Chat ID: {config.TELEGRAM_CHAT_ID or 'ANY (Initial Setup)'}")
+    print("=======================================================")
+
+    attempt = 0
     while True:
+        attempt += 1
+        print(f"[telegram_bot] Starting bot (attempt #{attempt})...")
         try:
-            app.run_polling(bootstrap_retries=10, timeout=30)
+            # Build a FRESH app each attempt — run_polling() closes the event
+            # loop on exit so the previous app object cannot be reused.
+            app = _build_app(token)
+            print("[telegram_bot] Bot listener running! Send /menu to your bot on Telegram.")
+            app.run_polling(bootstrap_retries=5, timeout=30)
+            # run_polling returned normally (e.g. via stop signal) — exit cleanly
             break
         except Exception as e:
-            print(f"[telegram_bot] Connection hiccup ({e}). Retrying in 5 seconds...")
+            print(f"[telegram_bot] Crashed ({type(e).__name__}: {e}). Restarting in 5 seconds...")
             time.sleep(5)
 
 
 if __name__ == "__main__":
-    import time
     main()
-
