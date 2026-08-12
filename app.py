@@ -13,6 +13,28 @@ import datetime
 from pathlib import Path
 import urllib.request
 
+# Compatibility shim for huggingface_hub >= 0.25 where HfFolder was removed
+try:
+    import huggingface_hub
+    if not hasattr(huggingface_hub, "HfFolder"):
+        try:
+            from huggingface_hub.hf_api import HfFolder
+            huggingface_hub.HfFolder = HfFolder
+        except Exception:
+            class HfFolder:
+                @staticmethod
+                def get_token(*args, **kwargs):
+                    return None
+                @staticmethod
+                def save_token(*args, **kwargs):
+                    pass
+                @staticmethod
+                def delete_token(*args, **kwargs):
+                    pass
+            huggingface_hub.HfFolder = HfFolder
+except Exception:
+    pass
+
 import gradio as gr
 
 # ── Bootstrap templates ──────────────────────────────────────────────────────
