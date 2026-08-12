@@ -49,8 +49,11 @@ def _run_stage_subprocess(module: str, video_id: int, extra_args: list[str] | No
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         bufsize=1,
     )
+
 
     base_pct = int((int(stage_num) - 1) / 7.0 * 100) if stage_num.isdigit() else 0
     current_pct = base_pct
