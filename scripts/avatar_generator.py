@@ -80,6 +80,34 @@ def _mp3_to_wav(mp3_path: Path, wav_path: Path):
         )
 
 
+def _generate_static_avatar_clip(face_path: Path, audio_mp3: Path, out_path: Path):
+    """Generates a static avatar clip with narration audio using FFmpeg (zero GPU needed, runs in 1s)."""
+    try:
+        import imageio_ffmpeg
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        ffmpeg_exe = "ffmpeg"
+
+    cmd = [
+        ffmpeg_exe, "-y",
+        "-loop", "1",
+        "-i", str(face_path),
+        "-i", str(audio_mp3),
+        "-c:v", "libx264",
+        "-tune", "stillimage",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-pix_fmt", "yuv420p",
+        "-shortest",
+        str(out_path),
+    ]
+    res = subprocess.run(cmd, capture_output=True)
+    if res.returncode != 0:
+        raise RuntimeError(f"Static avatar FFmpeg generation failed: {res.stderr.decode()}")
+    print(f"[avatar] Static avatar clip generated with FFmpeg (CPU-safe): {out_path.name}")
+    return out_path
+
+
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def generate(video_id, avatar_base_path=None, use_enhancer=None):
@@ -98,7 +126,7 @@ def generate(video_id, avatar_base_path=None, use_enhancer=None):
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path   = out_dir / f"video_{video_id}_avatar.mp4"
 
-    # Instant asset reuse: skip SadTalker if avatar clip is already generated
+    # Instant asset reuse: skip if avatar clip is already generated
     if out_path.exists() and out_path.stat().st_size > 0:
         print(f"[avatar] Avatar clip already exists, reusing: {out_path.name}")
         return out_path
@@ -106,10 +134,29 @@ def generate(video_id, avatar_base_path=None, use_enhancer=None):
     if not audio_mp3.exists():
         raise FileNotFoundError(f"Narration audio not found: {audio_mp3}")
 
+    # Check for GPU / CPU mode
+    use_animated = os.getenv("ENABLE_ANIMATED_AVATAR", "auto").lower()
+    has_gpu = False
+    try:
+        import torch
+        has_gpu = torch.cuda.is_available()
+    except Exception:
+        has_gpu = False
+
+    if use_animated == "false" or (use_animated == "auto" and not has_gpu):
+        print(f"[avatar] No GPU detected (or static mode) — using fast CPU image presenter overlay...")
+        return _generate_static_avatar_clip(face_path, audio_mp3, out_path)
+
     enhance = USE_ENHANCER if use_enhancer is None else use_enhancer
 
     # ── 1. Ensure SadTalker is ready ──────────────────────────────────────────
-    sadtalker_dir = ensure_sadtalker()
+    try:
+        sadtalker_dir = ensure_sadtalker()
+    except Exception as e:
+        print(f"[avatar] SadTalker setup failed ({e}) — using static image presenter...")
+        return _generate_static_avatar_clip(face_path, audio_mp3, out_path)
+
+
 
     # ── 2. Prepare ffmpeg in PATH ─────────────────────────────────────────────
     env = os.environ.copy()
@@ -162,29 +209,33 @@ def generate(video_id, avatar_base_path=None, use_enhancer=None):
         cmd += ["--enhancer", "gfpgan"]
 
     # ── 6. Run inference ──────────────────────────────────────────────────────
-    print(f"[avatar] Running SadTalker inference ...")
-    result = subprocess.run(
-        cmd,
-        cwd=str(sadtalker_dir),
-        env=env,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"SadTalker inference failed with exit code {result.returncode}."
+    try:
+        print(f"[avatar] Running SadTalker inference ...")
+        result = subprocess.run(
+            cmd,
+            cwd=str(sadtalker_dir),
+            env=env,
         )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"SadTalker inference failed with exit code {result.returncode}."
+            )
 
-    # ── 7. Move output to canonical path ─────────────────────────────────────
-    # SadTalker names outputs like: results/<video_id>/<face_stem>_<audio_stem>.mp4
-    candidates = sorted(result_dir.glob("*.mp4"), key=lambda p: p.stat().st_mtime)
-    if not candidates:
-        raise RuntimeError(
-            f"SadTalker did not produce any .mp4 output in {result_dir}"
-        )
-    generated = candidates[-1]   # most recent
-    shutil.move(str(generated), str(out_path))
+        # ── 7. Move output to canonical path ─────────────────────────────────────
+        candidates = sorted(result_dir.glob("*.mp4"), key=lambda p: p.stat().st_mtime)
+        if not candidates:
+            raise RuntimeError(
+                f"SadTalker did not produce any .mp4 output in {result_dir}"
+            )
+        generated = candidates[-1]   # most recent
+        shutil.move(str(generated), str(out_path))
 
-    print(f"[avatar] Expressive avatar clip saved: {out_path}")
-    return out_path
+        print(f"[avatar] Expressive avatar clip saved: {out_path}")
+        return out_path
+    except Exception as e:
+        print(f"[avatar] SadTalker failed ({e}) — falling back to static presenter image clip...")
+        return _generate_static_avatar_clip(face_path, audio_mp3, out_path)
+
 
 
 if __name__ == "__main__":
