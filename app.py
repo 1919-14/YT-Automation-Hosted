@@ -41,17 +41,31 @@ import gradio as gr
 def ensure_baseline_templates():
     template_dir = Path("assets/templates")
     template_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Avatar presenter base template
     avatar_base = template_dir / "avatar_base.png"
     if not avatar_base.exists():
         raw_url = "https://raw.githubusercontent.com/1919-14/YT-Automation-Hosted/main/assets/templates/avatar_base.png"
         try:
-            print(f"[HF-Space] Downloading baseline template from {raw_url} ...")
+            print(f"[HF-Space] Downloading baseline avatar from {raw_url} ...")
             urllib.request.urlretrieve(raw_url, avatar_base)
-            print("[HF-Space] Baseline template downloaded successfully!")
+            print("[HF-Space] Baseline avatar downloaded successfully!")
         except Exception as e:
-            print(f"[HF-Space] Warning downloading template: {e}")
+            print(f"[HF-Space] Warning downloading avatar: {e}")
+
+    # 2. Channel logo template
+    logo = template_dir / "logo.png"
+    if not logo.exists():
+        raw_url = "https://raw.githubusercontent.com/1919-14/YT-Automation-Hosted/main/assets/templates/logo.png"
+        try:
+            print(f"[HF-Space] Downloading channel logo from {raw_url} ...")
+            urllib.request.urlretrieve(raw_url, logo)
+            print("[HF-Space] Channel logo downloaded successfully!")
+        except Exception as e:
+            print(f"[HF-Space] Warning downloading logo: {e}")
 
 ensure_baseline_templates()
+
 
 # ── Global log buffer ────────────────────────────────────────────────────────
 _LOG_LINES: list[str] = []
