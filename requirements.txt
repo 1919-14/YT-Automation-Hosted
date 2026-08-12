@@ -13,6 +13,7 @@ gradio>=4.0.0
 Pillow>=10.0.0
 imageio-ffmpeg>=0.4.9
 pydub>=0.25.1
+pyaudioop>=0.1.0
 
 # YouTube Publishing
 google-api-python-client>=2.100.0
