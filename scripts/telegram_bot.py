@@ -231,10 +231,10 @@ def _build_app(token: str):
     from telegram.request import HTTPXRequest
 
     req = HTTPXRequest(
-        connect_timeout=30.0,
-        read_timeout=30.0,
-        write_timeout=30.0,
-        pool_timeout=30.0,
+        connect_timeout=20.0,
+        read_timeout=20.0,
+        write_timeout=20.0,
+        pool_timeout=20.0,
     )
     app = Application.builder().token(token).request(req).get_updates_request(req).build()
     app.add_handler(CommandHandler(["start", "menu"], start_command))
@@ -242,6 +242,13 @@ def _build_app(token: str):
     app.add_handler(CommandHandler("retry", retry_command))
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), generic_message_handler))
+
+    # Log ALL errors that happen during polling so nothing is silently swallowed
+    async def error_handler(update, context):
+        print(f"[telegram_bot] ERROR during update processing: {context.error}", flush=True)
+        logger.error("Exception while handling an update:", exc_info=context.error)
+
+    app.add_error_handler(error_handler)
     return app
 
 
@@ -250,29 +257,33 @@ def main():
 
     token = config.TELEGRAM_BOT_TOKEN
     if not token:
-        print("Error: TELEGRAM_BOT_TOKEN is not set in .env file.")
-        print("Create a bot via @BotFather on Telegram, copy token to .env, and re-run.")
+        print("Error: TELEGRAM_BOT_TOKEN is not set in .env file.", flush=True)
+        print("Create a bot via @BotFather on Telegram, copy token to .env, and re-run.", flush=True)
         sys.exit(1)
 
-    print("=======================================================")
-    print("NIGHT LOOM TELEGRAM CONTROL BOT STARTING...")
-    print(f"   Authorized Chat ID: {config.TELEGRAM_CHAT_ID or 'ANY (Initial Setup)'}")
-    print("=======================================================")
+    print("=======================================================", flush=True)
+    print("NIGHT LOOM TELEGRAM CONTROL BOT STARTING...", flush=True)
+    print(f"   Authorized Chat ID: {config.TELEGRAM_CHAT_ID or 'ANY (Initial Setup)'}", flush=True)
+    print("=======================================================", flush=True)
 
     attempt = 0
     while True:
         attempt += 1
-        print(f"[telegram_bot] Starting bot (attempt #{attempt})...")
+        print(f"[telegram_bot] Starting bot (attempt #{attempt})...", flush=True)
         try:
-            # Build a FRESH app each attempt — run_polling() closes the event
-            # loop on exit so the previous app object cannot be reused.
             app = _build_app(token)
-            print("[telegram_bot] Bot listener running! Send /menu to your bot on Telegram.")
-            app.run_polling(bootstrap_retries=5, timeout=30)
-            # run_polling returned normally (e.g. via stop signal) — exit cleanly
+            print("[telegram_bot] Bot listener running! Send /menu to your bot on Telegram.", flush=True)
+            # poll_interval=1.0 → poll every 1 second
+            # timeout=10 → short long-poll to avoid HF proxy dropping idle connections
+            app.run_polling(
+                bootstrap_retries=5,
+                poll_interval=1.0,
+                timeout=10,
+                allowed_updates=Update.ALL_TYPES,
+            )
             break
         except Exception as e:
-            print(f"[telegram_bot] Crashed ({type(e).__name__}: {e}). Restarting in 5 seconds...")
+            print(f"[telegram_bot] Crashed ({type(e).__name__}: {e}). Restarting in 5 seconds...", flush=True)
             time.sleep(5)
 
 
