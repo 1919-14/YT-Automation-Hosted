@@ -268,7 +268,7 @@ def main():
             # loop on exit so the previous app object cannot be reused.
             app = _build_app(token)
             print("[telegram_bot] Bot listener running! Send /menu to your bot on Telegram.")
-            app.run_polling(bootstrap_retries=5, timeout=30, drop_pending_updates=True)
+            app.run_polling(bootstrap_retries=5, timeout=30)
             # run_polling returned normally (e.g. via stop signal) — exit cleanly
             break
         except Exception as e:
