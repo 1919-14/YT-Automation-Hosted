@@ -30,9 +30,8 @@ gfpgan
 facexlib>=0.3.0
 basicsr>=1.4.2
 scipy
-# Telegram Bot & Gradio Dashboard
+# Telegram Bot
 python-telegram-bot>=20.0
-gradio>=4.0.0
 
 # YouTube Publishing
 google-api-python-client>=2.100.0
