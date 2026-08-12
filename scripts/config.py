@@ -71,6 +71,9 @@ YT_TOKEN_FILE = PROJECT_ROOT / os.getenv("YT_TOKEN_FILE", "data/yt_token.json")
 # --- Telegram Bot ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+TELEGRAM_API_BASE_URL = os.getenv("TELEGRAM_API_BASE_URL", "https://tg-proxy.vssksn1919.workers.dev/bot")
+TELEGRAM_API_BASE_FILE_URL = os.getenv("TELEGRAM_API_BASE_FILE_URL", "https://tg-proxy.vssksn1919.workers.dev/file/bot")
+
 
 # --- Pexels ---
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
