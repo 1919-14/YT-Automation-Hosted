@@ -225,6 +225,21 @@ async def generic_message_handler(update: Update, context: ContextTypes.DEFAULT_
         )
 
 
+async def _on_startup(application: Application):
+    """Notify the user on Telegram that the HF Space has started and is ready."""
+    chat_id = config.TELEGRAM_CHAT_ID
+    if chat_id:
+        try:
+            await application.bot.send_message(
+                chat_id=chat_id,
+                text="⚡ *Night Loom Control Center Online!*\n\nHugging Face Space is connected and ready to go. Send /menu to start!",
+                parse_mode="Markdown"
+            )
+            print(f"[telegram_bot] Startup notification sent to chat_id: {chat_id}", flush=True)
+        except Exception as e:
+            print(f"[telegram_bot] Could not send startup notification: {e}", flush=True)
+
+
 def _build_app(token: str):
     """Build a fresh Application instance. Must be called on every retry since
     run_polling() destroys the asyncio event loop when it exits."""
@@ -236,7 +251,14 @@ def _build_app(token: str):
         write_timeout=20.0,
         pool_timeout=20.0,
     )
-    app = Application.builder().token(token).request(req).get_updates_request(req).build()
+    app = (
+        Application.builder()
+        .token(token)
+        .request(req)
+        .get_updates_request(req)
+        .post_init(_on_startup)
+        .build()
+    )
     app.add_handler(CommandHandler(["start", "menu"], start_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("retry", retry_command))
