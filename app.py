@@ -179,10 +179,26 @@ CUSTOM_CSS = """
 /* ── Root font ── */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-body, .gradio-container {
+html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #0f172a !important;
+    color: #f8fafc !important;
+    font-family: 'Inter', sans-serif !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    min-height: 100vh !important;
+}
+
+.gradio-container {
     font-family: 'Inter', sans-serif !important;
     background: #0f172a !important;
+    max-width: 1200px !important;
+    margin: 0 auto !important;
+    padding: 20px 16px !important;
+    overflow-y: visible !important;
 }
+
 
 /* ── Page header card ── */
 .nl-header {

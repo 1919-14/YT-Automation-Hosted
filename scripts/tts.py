@@ -48,8 +48,17 @@ def build_narration_text(script):
 
 
 async def _synthesize(text, output_path, voice=DEFAULT_VOICE, rate="+0%"):
-    communicate = edge_tts.Communicate(text, voice, rate=rate)
-    await communicate.save(str(output_path))
+    for attempt in range(1, 4):
+        try:
+            communicate = edge_tts.Communicate(text, voice, rate=rate)
+            await communicate.save(str(output_path))
+            if output_path.exists() and output_path.stat().st_size > 0:
+                return
+        except Exception as e:
+            print(f"[tts] Synthesis attempt {attempt} failed ({e}). Retrying in 2s...")
+            await asyncio.sleep(2)
+    raise RuntimeError(f"Edge-TTS failed to synthesize audio after 3 attempts.")
+
 
 
 def generate_audio(script, output_path, voice=DEFAULT_VOICE, rate="+0%"):

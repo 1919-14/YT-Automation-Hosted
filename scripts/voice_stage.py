@@ -62,9 +62,12 @@ def process_all_pending(voice=tts.DEFAULT_VOICE):
             try:
                 process_video(vid, conn=conn, voice=voice)
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 mem.update_video_status(conn, vid, "failed", error_message=str(e))
                 print(f"[voice_stage] video {vid} FAILED: {e}")
                 raise
+
 
 
 def main():
