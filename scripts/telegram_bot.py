@@ -225,38 +225,21 @@ async def generic_message_handler(update: Update, context: ContextTypes.DEFAULT_
         )
 
 
-async def _on_startup(application: Application):
-    """Notify the user on Telegram that the HF Space has started and is ready."""
-    chat_id = config.TELEGRAM_CHAT_ID
-    if chat_id:
-        try:
-            await application.bot.send_message(
-                chat_id=chat_id,
-                text="⚡ *Night Loom Control Center Online!*\n\nHugging Face Space is connected and ready to go. Send /menu to start!",
-                parse_mode="Markdown"
-            )
-            print(f"[telegram_bot] Startup notification sent to chat_id: {chat_id}", flush=True)
-        except Exception as e:
-            print(f"[telegram_bot] Could not send startup notification: {e}", flush=True)
-
-
 def _build_app(token: str):
-    """Build a fresh Application instance. Must be called on every retry since
-    run_polling() destroys the asyncio event loop when it exits."""
+    """Build a fresh Application instance with handlers registered."""
     from telegram.request import HTTPXRequest
 
     req = HTTPXRequest(
-        connect_timeout=20.0,
-        read_timeout=20.0,
-        write_timeout=20.0,
-        pool_timeout=20.0,
+        connect_timeout=30.0,
+        read_timeout=30.0,
+        write_timeout=30.0,
+        pool_timeout=30.0,
     )
     app = (
         Application.builder()
         .token(token)
         .request(req)
         .get_updates_request(req)
-        .post_init(_on_startup)
         .build()
     )
     app.add_handler(CommandHandler(["start", "menu"], start_command))
@@ -265,13 +248,77 @@ def _build_app(token: str):
     app.add_handler(CallbackQueryHandler(button_callback))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), generic_message_handler))
 
-    # Log ALL errors that happen during polling so nothing is silently swallowed
     async def error_handler(update, context):
-        print(f"[telegram_bot] ERROR during update processing: {context.error}", flush=True)
+        print(f"[telegram_bot] ERROR: {context.error}", flush=True)
         logger.error("Exception while handling an update:", exc_info=context.error)
 
     app.add_error_handler(error_handler)
     return app
+
+
+async def _run_bot(token: str):
+    """Main async entrypoint — manages the full bot lifecycle manually.
+
+    Unlike run_polling(), this gives us full control over retries during
+    initialization (HF Spaces has slow/intermittent connectivity to
+    api.telegram.org) and avoids the asyncio event loop death spiral.
+    """
+    app = _build_app(token)
+
+    # Step 1: Initialize with unlimited retries (HF networking can be very slow)
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            print(f"[telegram_bot] Connecting to Telegram API (attempt #{attempt})...", flush=True)
+            await app.initialize()
+            print("[telegram_bot] Connected to Telegram API!", flush=True)
+            break
+        except Exception as e:
+            wait = min(10 * attempt, 60)  # back off: 10s, 20s, 30s ... max 60s
+            print(f"[telegram_bot] Connection failed ({type(e).__name__}: {e}). Retrying in {wait}s...", flush=True)
+            await asyncio.sleep(wait)
+
+    # Step 2: Start the application (registers handlers with the event loop)
+    await app.start()
+
+    # Step 3: Start polling for updates
+    await app.updater.start_polling(
+        poll_interval=1.0,
+        timeout=10,
+        bootstrap_retries=-1,  # infinite retries for getUpdates bootstrap
+        allowed_updates=Update.ALL_TYPES,
+    )
+
+    # Step 4: Send startup notification
+    chat_id = config.TELEGRAM_CHAT_ID
+    if chat_id:
+        try:
+            await app.bot.send_message(
+                chat_id=chat_id,
+                text=(
+                    "⚡ *Night Loom Control Center Online!*\n\n"
+                    "Hugging Face Space is connected and ready. Send /menu to start!"
+                ),
+                parse_mode="Markdown",
+            )
+            print(f"[telegram_bot] Startup notification sent to chat_id: {chat_id}", flush=True)
+        except Exception as e:
+            print(f"[telegram_bot] Could not send startup notification: {e}", flush=True)
+
+    print("[telegram_bot] Bot is now polling for updates!", flush=True)
+
+    # Step 5: Block forever (the updater runs in the background)
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        print("[telegram_bot] Shutting down...", flush=True)
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
 
 
 def main():
@@ -291,22 +338,13 @@ def main():
     attempt = 0
     while True:
         attempt += 1
-        print(f"[telegram_bot] Starting bot (attempt #{attempt})...", flush=True)
+        print(f"[telegram_bot] === Outer restart #{attempt} ===", flush=True)
         try:
-            app = _build_app(token)
-            print("[telegram_bot] Bot listener running! Send /menu to your bot on Telegram.", flush=True)
-            # poll_interval=1.0 → poll every 1 second
-            # timeout=10 → short long-poll to avoid HF proxy dropping idle connections
-            app.run_polling(
-                bootstrap_retries=5,
-                poll_interval=1.0,
-                timeout=10,
-                allowed_updates=Update.ALL_TYPES,
-            )
-            break
+            asyncio.run(_run_bot(token))
+            break  # clean exit
         except Exception as e:
-            print(f"[telegram_bot] Crashed ({type(e).__name__}: {e}). Restarting in 5 seconds...", flush=True)
-            time.sleep(5)
+            print(f"[telegram_bot] Fatal crash ({type(e).__name__}: {e}). Restarting in 10s...", flush=True)
+            time.sleep(10)
 
 
 if __name__ == "__main__":
