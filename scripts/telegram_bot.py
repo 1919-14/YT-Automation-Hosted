@@ -11,9 +11,22 @@ Usage:
 import asyncio
 import logging
 import os
+import socket
 import sys
 import threading
 from pathlib import Path
+
+# Force IPv4 resolution for all socket connections in this process.
+# Hugging Face Space Linux containers often have IPv6 enabled in DNS,
+# but IPv6 egress is blocked/unreachable, causing 30s ConnectTimeout
+# on api.telegram.org when asyncio attempts IPv6 first.
+_old_getaddrinfo = socket.getaddrinfo
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _old_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+socket.getaddrinfo = _ipv4_only_getaddrinfo
+
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
