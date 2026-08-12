@@ -145,12 +145,24 @@ async def run_telegram_bot():
     # Expose the bot loop so the webhook handler can submit updates
     _bot_loop = asyncio.get_running_loop()
 
-    # Build and initialize the Application
+    # Build the Application
     app = build_application()
     _telegram_app = app
 
-    print("[telegram_bot] Initializing bot...", flush=True)
-    await app.initialize()
+    # Initialize with retries (proxy may be slow on first call)
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            print(f"[telegram_bot] Initializing bot (attempt #{attempt})...", flush=True)
+            await app.initialize()
+            print("[telegram_bot] Bot initialized successfully!", flush=True)
+            break
+        except Exception as e:
+            wait = min(10 * attempt, 60)
+            print(f"[telegram_bot] Init failed ({type(e).__name__}: {e}). Retrying in {wait}s...", flush=True)
+            await asyncio.sleep(wait)
+
     await app.start()
     print("[telegram_bot] Bot started! Registering webhook...", flush=True)
 
@@ -171,15 +183,23 @@ async def run_telegram_bot():
 
 
 def main():
+    import time
+
     print(f"\n===== Application Startup at {__import__('datetime').datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} =====\n", flush=True)
 
     # Start HTTP server in background thread
     http_thread = threading.Thread(target=run_http_server, daemon=True)
     http_thread.start()
 
-    # Run telegram bot in main thread (blocking)
+    # Run telegram bot in main thread with outer restart loop
     print("[HF-Space] Starting Telegram Bot in webhook mode...", flush=True)
-    asyncio.run(run_telegram_bot())
+    while True:
+        try:
+            asyncio.run(run_telegram_bot())
+            break
+        except Exception as e:
+            print(f"[HF-Space] Bot crashed ({type(e).__name__}: {e}). Restarting in 10s...", flush=True)
+            time.sleep(10)
 
 
 if __name__ == "__main__":

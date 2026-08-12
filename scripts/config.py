@@ -46,6 +46,10 @@ YT_TOKEN_FILE = PROJECT_ROOT / os.getenv("YT_TOKEN_FILE", "data/yt_token.json")
 # --- Telegram Bot ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+# Proxy for HF Spaces where api.telegram.org is blocked.
+# Set to your Cloudflare Worker URL, e.g. "https://my-tg-proxy.workers.dev/bot"
+TELEGRAM_API_BASE_URL = os.getenv("TELEGRAM_API_BASE_URL", "https://api.telegram.org/bot")
+TELEGRAM_API_BASE_FILE_URL = os.getenv("TELEGRAM_API_BASE_FILE_URL", "https://api.telegram.org/file/bot")
 
 # --- Pexels ---
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")

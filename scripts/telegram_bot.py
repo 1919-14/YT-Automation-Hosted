@@ -255,9 +255,17 @@ def build_application() -> Application:
         write_timeout=30.0,
         pool_timeout=30.0,
     )
+
+    # Use proxy base_url on HF Spaces (api.telegram.org is blocked there)
+    base_url = config.TELEGRAM_API_BASE_URL
+    base_file_url = config.TELEGRAM_API_BASE_FILE_URL
+    print(f"[telegram_bot] Using API base URL: {base_url}", flush=True)
+
     app = (
         Application.builder()
         .token(token)
+        .base_url(base_url)
+        .base_file_url(base_file_url)
         .request(req)
         .get_updates_request(req)
         .build()
