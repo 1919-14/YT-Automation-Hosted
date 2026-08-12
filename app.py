@@ -31,18 +31,7 @@ def ensure_baseline_templates():
 
 ensure_baseline_templates()
 
-# Launch Telegram bot in a dedicated background daemon thread
-def run_telegram_bot():
-    print("[HF-Space] Launching Telegram Control Bot in background...")
-    try:
-        subprocess.run([sys.executable, "-m", "scripts.telegram_bot"])
-    except Exception as e:
-        print(f"[HF-Space] Telegram Bot process error: {e}")
-
-bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
-bot_thread.start()
-
-# Pure Python HTTP Server on port 7860
+# Pure Python HTTP Server on port 7860 — runs in a background thread
 class StatusHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -92,5 +81,22 @@ def run_http_server():
     with socketserver.TCPServer(("0.0.0.0", port), StatusHandler) as httpd:
         httpd.serve_forever()
 
-if __name__ == "__main__":
-    run_http_server()
+# Start HTTP server in a background daemon thread
+http_thread = threading.Thread(target=run_http_server, daemon=True)
+http_thread.start()
+
+# Run Telegram bot in the MAIN thread with live stdout/stderr streaming
+# This ensures crashes are always visible in HF Space logs and the process
+# is never silently killed by daemon thread rules.
+print("[HF-Space] Launching Telegram Control Bot in main thread...")
+print("=======================================================")
+
+while True:
+    proc = subprocess.Popen(
+        [sys.executable, "-u", "-m", "scripts.telegram_bot"],
+        stdout=sys.stdout,
+        stderr=sys.stderr,
+    )
+    exit_code = proc.wait()
+    print(f"[HF-Space] Telegram bot exited with code {exit_code}. Restarting in 5 seconds...")
+    time.sleep(5)
