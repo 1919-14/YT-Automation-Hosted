@@ -43,7 +43,7 @@ _LAST_HEARTBEAT: float = 0.0
 
 
 def is_slot_completed(date_str: str, slot_id: int) -> bool:
-    """Checks in-memory cache and persistent database to see if slot_id already executed today."""
+    """Checks in-memory cache and persistent database to see if a specific slot key already executed."""
     unique_key = f"{date_str}-slot-{slot_id}"
     if unique_key in _EXECUTED_SLOTS:
         return True
@@ -51,17 +51,18 @@ def is_slot_completed(date_str: str, slot_id: int) -> bool:
     try:
         with memory.get_conn() as conn:
             cur = conn.execute(
-                "SELECT COUNT(*) FROM videos WHERE created_at LIKE ? OR uploaded_at LIKE ?",
-                (f"{date_str}%", f"{date_str}%")
+                "SELECT COUNT(*) FROM run_log WHERE decision = 'slot_trigger' AND reason = ?",
+                (unique_key,)
             )
             count = cur.fetchone()[0]
-            if count >= slot_id:
+            if count > 0:
                 _EXECUTED_SLOTS.add(unique_key)
                 return True
     except Exception as e:
         print(f"[scheduler] DB slot check warning: {e}")
 
     return False
+
 
 
 def compute_daily_schedule(target_date: datetime.date = None) -> list[dict]:
@@ -167,6 +168,12 @@ def _scheduler_loop():
 
                     _EXECUTED_SLOTS.add(unique_key)
                     slot["status"] = "Running"
+                    try:
+                        with memory.get_conn() as conn:
+                            memory.log_run_start(conn, decision="slot_trigger", reason=unique_key)
+                    except Exception:
+                        pass
+
 
                     try:
                         print(f"[scheduler] Launching live pipeline (is_short={slot['is_short']}, style=pexels)...")
