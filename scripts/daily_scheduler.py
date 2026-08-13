@@ -166,12 +166,16 @@ def _scheduler_loop():
 
 def start_scheduler():
     """Starts the 24/7 background scheduler thread if not already running."""
+    # Guarantee memory DB & Supabase cloud restore complete FIRST before scheduler runs
+    memory.init_db()
+
     global _SCHEDULER_THREAD
     with _SCHEDULER_LOCK:
         if _SCHEDULER_THREAD is None or not _SCHEDULER_THREAD.is_alive():
             _SCHEDULER_THREAD = threading.Thread(target=_scheduler_loop, daemon=True)
             _SCHEDULER_THREAD.start()
             print("[scheduler] Background daemon thread launched.")
+
 
 
 def trigger_next_slot_now(is_short: bool = True):

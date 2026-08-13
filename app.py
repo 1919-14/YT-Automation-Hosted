@@ -67,7 +67,9 @@ def ensure_baseline_templates():
 from scripts import config, memory, daily_scheduler
 
 ensure_baseline_templates()
+memory.init_db()
 daily_scheduler.start_scheduler()
+
 
 
 
