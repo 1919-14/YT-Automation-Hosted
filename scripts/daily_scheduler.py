@@ -42,6 +42,28 @@ _SCHEDULER_LOCK = threading.Lock()
 _LAST_HEARTBEAT: float = 0.0
 
 
+def is_slot_completed(date_str: str, slot_id: int) -> bool:
+    """Checks in-memory cache and persistent database to see if slot_id already executed today."""
+    unique_key = f"{date_str}-slot-{slot_id}"
+    if unique_key in _EXECUTED_SLOTS:
+        return True
+
+    try:
+        with memory.get_conn() as conn:
+            cur = conn.execute(
+                "SELECT COUNT(*) FROM videos WHERE created_at LIKE ? OR uploaded_at LIKE ?",
+                (f"{date_str}%", f"{date_str}%")
+            )
+            count = cur.fetchone()[0]
+            if count >= slot_id:
+                _EXECUTED_SLOTS.add(unique_key)
+                return True
+    except Exception as e:
+        print(f"[scheduler] DB slot check warning: {e}")
+
+    return False
+
+
 def compute_daily_schedule(target_date: datetime.date = None) -> list[dict]:
     """
     Computes the 6 target slot trigger times for target_date (UTC).
@@ -74,7 +96,8 @@ def compute_daily_schedule(target_date: datetime.date = None) -> list[dict]:
         est_dt = trigger_dt.astimezone(datetime.timezone(datetime.timedelta(hours=-5)))
 
         unique_key = f"{date_str}-slot-{slot_id}"
-        status = "Completed" if unique_key in _EXECUTED_SLOTS else "Pending"
+        completed = is_slot_completed(date_str, slot_id)
+        status = "Completed" if completed else "Pending"
 
         schedule.append({
             "unique_key": unique_key,
@@ -89,8 +112,8 @@ def compute_daily_schedule(target_date: datetime.date = None) -> list[dict]:
             "status": status,
         })
 
-
     return schedule
+
 
 
 def get_schedule_display_data() -> list[dict]:
@@ -136,7 +159,8 @@ def _scheduler_loop():
                 trigger_dt = slot["trigger_dt"]
 
                 # If trigger time has arrived and slot has not executed yet
-                if now_utc >= trigger_dt and unique_key not in _EXECUTED_SLOTS:
+                if now_utc >= trigger_dt and not is_slot_completed(now_utc.strftime("%Y-%m-%d"), slot["slot_id"]):
+
                     print(f"\n=======================================================")
                     print(f"[scheduler] ⏰ SLOT TRIGGERED: {slot['name']} ({slot['utc_str']})")
                     print(f"=======================================================")
