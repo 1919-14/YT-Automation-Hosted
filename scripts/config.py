@@ -61,6 +61,11 @@ GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 GEMINI_MODEL = os.getenv("LLM_MODEL2", "gemini-2.5-flash-lite")
 GEMINI_API_KEY = os.getenv("LLM_API_KEY11", "")
 
+# --- Supabase Cloud Database ---
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
+
+
 
 # --- YouTube ---
 YT_CLIENT_SECRETS_FILE = PROJECT_ROOT / os.getenv(
