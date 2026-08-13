@@ -104,13 +104,16 @@ def init_db():
         with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
             conn.executescript(f.read())
 
-    # Try restoring from Supabase first
-    restored = _restore_from_supabase(conn)
+    # Try restoring from Supabase only if DB is brand new / missing
+    restored = False
+    if is_new:
+        restored = _restore_from_supabase(conn)
 
     if not restored and is_new and SEED_PATH.exists():
         with open(SEED_PATH, "r", encoding="utf-8") as f:
             conn.executescript(f.read())
         print(f"[memory] Initialized database from seed SQL with existing video history!")
+
 
     conn.commit()
     conn.close()
