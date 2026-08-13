@@ -157,10 +157,39 @@ def get_series(conn, series_id):
     if not row:
         return None
     d = dict(row)
-    d["canon_facts"] = json.loads(d["canon_facts"])
-    d["characters"] = json.loads(d["characters"])
-    d["unresolved_threads"] = json.loads(d["unresolved_threads"])
+
+    # Safely unwrap canon_facts to a list
+    cf = d.get("canon_facts", "[]")
+    while isinstance(cf, str):
+        try:
+            cf = json.loads(cf)
+        except Exception:
+            cf = []
+            break
+    d["canon_facts"] = cf if isinstance(cf, list) else []
+
+    # Safely unwrap characters to a dict
+    ch = d.get("characters", "{}")
+    while isinstance(ch, str):
+        try:
+            ch = json.loads(ch)
+        except Exception:
+            ch = {}
+            break
+    d["characters"] = ch if isinstance(ch, dict) else {}
+
+    # Safely unwrap unresolved_threads to a list
+    ut = d.get("unresolved_threads", "[]")
+    while isinstance(ut, str):
+        try:
+            ut = json.loads(ut)
+        except Exception:
+            ut = []
+            break
+    d["unresolved_threads"] = ut if isinstance(ut, list) else []
+
     return d
+
 
 
 def create_series(conn, series_name, category, format_, total_parts_planned=None):
