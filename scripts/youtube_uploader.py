@@ -164,11 +164,26 @@ def upload_video(
         thumb_file = Path(thumbnail_path)
         if thumb_file.exists():
             print(f"[youtube_uploader] Uploading custom thumbnail ({thumb_file.name}) ...")
+            upload_thumb_path = thumb_file
+
+            # YouTube API requires thumbnail file size < 2MB (2,097,152 bytes)
+            if thumb_file.stat().st_size > 2000000:
+                try:
+                    from PIL import Image
+                    img = Image.open(thumb_file)
+                    compressed_path = thumb_file.parent / f"{thumb_file.stem}_compressed.jpg"
+                    img.convert("RGB").save(compressed_path, "JPEG", quality=85, optimize=True)
+                    print(f"[youtube_uploader] Compressed thumbnail from {thumb_file.stat().st_size / 1024 / 1024:.2f}MB to {compressed_path.stat().st_size / 1024 / 1024:.2f}MB")
+                    upload_thumb_path = compressed_path
+                except Exception as ce:
+                    print(f"[youtube_uploader] Thumbnail compression warning: {ce}")
+
+            mtype = "image/jpeg" if upload_thumb_path.suffix.lower() in (".jpg", ".jpeg") else "image/png"
             for attempt in range(1, 4):
                 try:
                     service.thumbnails().set(
                         videoId=yt_video_id,
-                        media_body=MediaFileUpload(str(thumb_file), mimetype="image/png"),
+                        media_body=MediaFileUpload(str(upload_thumb_path), mimetype=mtype),
                     ).execute()
                     print("[youtube_uploader] Thumbnail uploaded successfully.")
                     break
@@ -178,6 +193,7 @@ def upload_video(
                         time.sleep(3)
         else:
             print(f"[youtube_uploader] Thumbnail file not found: {thumb_file}")
+
 
     return yt_video_id
 
