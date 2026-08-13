@@ -352,10 +352,9 @@ html, body {
 """
 
 with gr.Blocks(
-    theme=gr.themes.Soft(),
-    css=CUSTOM_CSS,
     title="🌌 Night Loom Control Engine",
 ) as demo:
+
 
     # ── Header ──────────────────────────────────────────────────────────────
     gr.HTML("""
@@ -544,6 +543,9 @@ if __name__ == "__main__":
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,
+        theme=gr.themes.Soft(),
+        css=CUSTOM_CSS,
         share=False,
         show_error=True,
     )
+
