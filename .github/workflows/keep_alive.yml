@@ -1,0 +1,22 @@
+name: 24/7 HF Space Keep-Alive Ping
+
+on:
+  schedule:
+    # Run every 4 hours to guarantee zero HF container sleep
+    - cron: '0 */4 * * *'
+  workflow_dispatch: # Allows manual 1-click trigger from GitHub Actions UI
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Hugging Face Space Endpoint
+        run: |
+          echo "Sending inbound HTTP Keep-Alive ping to HF Space..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -A "Mozilla/5.0 (GitHub-Actions-KeepAlive)" https://vssksn-intellicredit-openenv.hf.space)
+          echo "HTTP Response Code: $STATUS"
+          if [ "$STATUS" -eq 200 ] || [ "$STATUS" -eq 302 ]; then
+            echo "✅ Inbound HTTP Ping Successful! HF Space kept active 24/7/365."
+          else
+            echo "⚠️ Warning: Endpoint returned status $STATUS"
+          fi
