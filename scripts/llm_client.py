@@ -31,13 +31,29 @@ def _build_waterfall() -> list[dict]:
     """
     candidates = []
 
-    # ── Tier 1: OpenCode Zen ──────────────────────────────────────────────────
+    # ── Tier 1A: OpenCode Zen ─────────────────────────────────────────────────
     if config.LLM_API_KEY and config.LLM_BASE_URL:
         candidates.append({
-            "label": f"Tier 1 — OpenCode Zen ({config.LLM_MODEL})",
+            "label": f"Tier 1A — OpenCode Zen ({config.LLM_MODEL})",
             "client": OpenAI(base_url=config.LLM_BASE_URL, api_key=config.LLM_API_KEY),
             "model": config.LLM_MODEL,
         })
+
+    # ── Tier 1B: OpenRouter DeepSeek V4 Flash ────────────────────────────────
+    if getattr(config, "OPENROUTER_API_KEY", ""):
+        candidates.append({
+            "label": f"Tier 1B — OpenRouter ({config.OPENROUTER_MODEL})",
+            "client": OpenAI(
+                base_url=config.OPENROUTER_BASE_URL,
+                api_key=config.OPENROUTER_API_KEY,
+                default_headers={
+                    "HTTP-Referer": "https://github.com/1919-14/YT-Automation",
+                    "X-Title": "Night Loom YouTube Automation",
+                }
+            ),
+            "model": config.OPENROUTER_MODEL,
+        })
+
 
     # ── Tier 2: Groq 10-Key Pool ──────────────────────────────────────────────
     for idx, key in enumerate(config.GROQ_API_KEYS, start=1):
