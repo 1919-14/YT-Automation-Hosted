@@ -1,14 +1,6 @@
 """
 youtube_uploader.py — handles YouTube Data API v3 OAuth2 authentication,
-resumable video uploading, and custom thumbnail uploading.
-
-Credentials:
-  - data/client_secret.json — Google Cloud OAuth 2.0 client secret
-  - data/token.json         — Cached user OAuth token (auto-created on first auth)
-
-Usage:
-  from scripts import youtube_uploader
-  video_id_yt = youtube_uploader.upload_video(video_file, thumbnail_file, metadata)
+resumable video uploading, custom thumbnails, and non-interactive telemetry access.
 """
 
 import os
@@ -25,18 +17,16 @@ from googleapiclient.http import MediaFileUpload
 
 from . import config
 
-# Scopes required for uploading videos and setting thumbnails
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube",
 ]
 
 CLIENT_SECRET_FILE = config.PROJECT_ROOT / "data" / "client_secret.json"
-TOKEN_FILE         = config.PROJECT_ROOT / "data" / "token.json"
+TOKEN_FILE = config.PROJECT_ROOT / "data" / "token.json"
 
 
 def ensure_oauth_files():
-    """Restores OAuth client secret and token files from environment secrets if missing on disk."""
     data_dir = config.PROJECT_ROOT / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -53,8 +43,13 @@ def ensure_oauth_files():
             f.write(client_secret_env)
 
 
-def get_authenticated_service():
-    """Authenticates the user via OAuth2 and returns an active YouTube API service."""
+def get_authenticated_service(interactive: bool = True):
+    """Return an authenticated YouTube service.
+
+    interactive=False is used by the autonomous metrics collector: it may
+    refresh an existing token, but it must never open a browser or block the
+    scheduler waiting for human OAuth.
+    """
     ensure_oauth_files()
     creds = None
 
@@ -62,8 +57,9 @@ def get_authenticated_service():
         try:
             creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
         except Exception as e:
-            print(f"[youtube_uploader] Token file invalid ({e}). Requesting fresh login.")
-            TOKEN_FILE.unlink(missing_ok=True)
+            print(f"[youtube_uploader] Token file invalid ({e}).")
+            if interactive:
+                TOKEN_FILE.unlink(missing_ok=True)
             creds = None
 
     if not creds or not creds.valid:
@@ -72,10 +68,12 @@ def get_authenticated_service():
                 print("[youtube_uploader] Refreshing expired OAuth token ...")
                 creds.refresh(Request())
             except Exception:
-                print("[youtube_uploader] Token refresh failed. Re-authenticating...")
+                print("[youtube_uploader] Token refresh failed.")
                 creds = None
 
         if not creds:
+            if not interactive:
+                raise RuntimeError("No valid cached YouTube OAuth token available for non-interactive telemetry")
             if not CLIENT_SECRET_FILE.exists():
                 raise FileNotFoundError(
                     f"Google OAuth credentials not found at: {CLIENT_SECRET_FILE}\n"
@@ -83,13 +81,12 @@ def get_authenticated_service():
                     f"and place it at {CLIENT_SECRET_FILE}."
                 )
 
-            print(f"[youtube_uploader] Opening browser for YouTube OAuth login ...")
+            print("[youtube_uploader] Opening browser for YouTube OAuth login ...")
             flow = InstalledAppFlow.from_client_secrets_file(str(CLIENT_SECRET_FILE), SCOPES)
             creds = flow.run_local_server(port=0)
 
-        # Save credentials for future runs
         TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(TOKEN_FILE, "w") as token:
+        with open(TOKEN_FILE, "w", encoding="utf-8") as token:
             token.write(creds.to_json())
         print(f"[youtube_uploader] Token cached at {TOKEN_FILE.name}")
 
@@ -102,12 +99,6 @@ def upload_video(
     metadata: dict,
     privacy_status: str = "private",
 ) -> str:
-    """
-    Uploads a video to YouTube with metadata and sets custom thumbnail.
-
-    privacy_status: 'private', 'unlisted', or 'public'
-    Returns the uploaded YouTube Video ID string.
-    """
     video_file = Path(video_file_path)
     if not video_file.exists():
         raise FileNotFoundError(f"Video file to upload not found: {video_file}")
@@ -116,10 +107,10 @@ def upload_video(
 
     body = {
         "snippet": {
-            "title":       metadata.get("title", "YouTube Short")[:100],
+            "title": metadata.get("title", "YouTube Short")[:100],
             "description": metadata.get("description", ""),
-            "tags":        metadata.get("tags", []),
-            "categoryId":  metadata.get("category_id", "24"),
+            "tags": metadata.get("tags", []),
+            "categoryId": metadata.get("category_id", "24"),
         },
         "status": {
             "privacyStatus": privacy_status,
@@ -133,7 +124,7 @@ def upload_video(
 
     media = MediaFileUpload(
         str(video_file),
-        chunksize=1024 * 1024 * 5,  # 5MB chunks
+        chunksize=1024 * 1024 * 5,
         resumable=True,
         mimetype="video/mp4",
     )
@@ -159,14 +150,12 @@ def upload_video(
     print(f"[youtube_uploader] VIDEO UPLOAD SUCCESSFUL! YouTube Video ID: {yt_video_id}")
     print(f"[youtube_uploader] Watch URL: https://youtu.be/{yt_video_id}")
 
-    # Set Custom Thumbnail if provided
     if thumbnail_path:
         thumb_file = Path(thumbnail_path)
         if thumb_file.exists():
             print(f"[youtube_uploader] Uploading custom thumbnail ({thumb_file.name}) ...")
             upload_thumb_path = thumb_file
 
-            # YouTube API requires thumbnail file size < 2MB (2,097,152 bytes)
             if thumb_file.stat().st_size > 2000000:
                 try:
                     from PIL import Image
@@ -193,7 +182,6 @@ def upload_video(
                         time.sleep(3)
         else:
             print(f"[youtube_uploader] Thumbnail file not found: {thumb_file}")
-
 
     return yt_video_id
 
