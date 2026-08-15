@@ -22,26 +22,14 @@ def _days_since(iso_timestamp):
 
 
 def _pick_category(conn, exclude_last_n=2, format_="short"):
-    """Use learned performance as a soft prior while retaining exploration.
-
-    If learning has no mature samples yet, fall back to the original
-    random category picker. Recent-category exclusion remains mandatory.
-    """
     recent = set(mem.recent_categories(conn, limit=exclude_last_n))
-    candidates = [c for c in list_categories() if c not in recent]
-    if not candidates:
-        candidates = list_categories()
-
+    candidates = [c for c in list_categories() if c not in recent] or list_categories()
     try:
         learned = learning_engine.choose_category(conn, format_)
-        if learned in candidates:
-            # Keep exploration: learned category wins most of the time,
-            # otherwise retain the old random behavior.
-            if random.random() < 0.70:
-                return learned
+        if learned in candidates and random.random() < 0.70:
+            return learned
     except Exception as exc:
         print(f"[decision_engine] Learning prior unavailable: {exc}")
-
     return random.choice(candidates)
 
 
@@ -55,16 +43,15 @@ Last episode summary: {series['last_episode_summary']}
 Unresolved threads: {series['unresolved_threads']}
 Days since last episode: {series.get('_days_since')}
 
-Decide whether the NEXT episode should CONTINUE the series (introduce
-or advance a thread) or CONCLUDE it (resolve remaining threads and end
-the story satisfyingly).
+Decide whether the NEXT episode should CONTINUE the series (introduce or advance a thread) or CONCLUDE it (resolve remaining threads and end the story satisfyingly).
 
 Respond with ONLY valid JSON, no markdown, no explanation:
 {{"action": "continue" or "conclude", "reason": "one sentence why"}}"""
     return llm_client.chat_json([{"role": "user", "content": prompt}], temperature=0.4)
 
 
-def decide_next_video(conn):
+def decide_next_video(conn, is_short: bool = True):
+    """Choose the next video using mature performance as a soft category prior."""
     active_series = mem.get_active_series(conn)
     for s in active_series:
         s["_days_since"] = _days_since(s.get("last_video_date"))
@@ -90,7 +77,7 @@ def decide_next_video(conn):
             "reason": "Active series continuing on normal cadence.",
         }
 
-    format_ = "short"
+    format_ = "short" if is_short else "long_continuous"
     category = _pick_category(conn, format_=format_)
     cat_config = get_category_config(category)
 
@@ -115,5 +102,4 @@ def decide_next_video(conn):
 if __name__ == "__main__":
     mem.init_db()
     with mem.get_conn() as conn:
-        decision = decide_next_video(conn)
-        print("Decision:", decision)
+        print("Decision:", decide_next_video(conn, is_short=True))
