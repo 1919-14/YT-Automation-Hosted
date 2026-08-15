@@ -1,5 +1,6 @@
 """decision_engine.py — policy for choosing the next Night Loom video."""
 
+import os
 import random
 from datetime import datetime, timezone
 
@@ -50,8 +51,16 @@ Respond with ONLY valid JSON, no markdown, no explanation:
     return llm_client.chat_json([{"role": "user", "content": prompt}], temperature=0.4)
 
 
-def decide_next_video(conn, is_short: bool = True):
-    """Choose the next video using mature performance as a soft category prior."""
+def decide_next_video(conn, is_short: bool | None = None):
+    """Choose the next video using mature performance as a soft category prior.
+
+    The scheduler sets NIGHTLOOM_FORMAT before launching a slot so long-form
+    and short-form learning remain separate without changing the existing
+    orchestrator API.
+    """
+    if is_short is None:
+        is_short = os.getenv("NIGHTLOOM_FORMAT", "short") != "long_continuous"
+
     active_series = mem.get_active_series(conn)
     for s in active_series:
         s["_days_since"] = _days_since(s.get("last_video_date"))
@@ -61,45 +70,23 @@ def decide_next_video(conn, is_short: bool = True):
         target = stale_candidates[0]
         judgment = _judge_continue_or_conclude(target)
         action = "continue_series" if judgment["action"] == "continue" else "conclude_series"
-        return {
-            "action": action,
-            "series_id": target["series_id"],
-            "category": target["category"],
-            "reason": judgment["reason"],
-        }
+        return {"action": action, "series_id": target["series_id"], "category": target["category"], "reason": judgment["reason"]}
 
     if active_series and random.random() < 0.4:
         target = active_series[0]
-        return {
-            "action": "continue_series",
-            "series_id": target["series_id"],
-            "category": target["category"],
-            "reason": "Active series continuing on normal cadence.",
-        }
+        return {"action": "continue_series", "series_id": target["series_id"], "category": target["category"], "reason": "Active series continuing on normal cadence."}
 
     format_ = "short" if is_short else "long_continuous"
     category = _pick_category(conn, format_=format_)
     cat_config = get_category_config(category)
 
     if cat_config["series_friendly"] and random.random() < NEW_SERIES_PROBABILITY:
-        return {
-            "action": "new_content",
-            "series_id": None,
-            "category": category,
-            "reason": f"Starting a new series in category '{category}'.",
-            "start_new_series": True,
-        }
+        return {"action": "new_content", "series_id": None, "category": category, "reason": f"Starting a new series in category '{category}'.", "start_new_series": True}
 
-    return {
-        "action": "new_content",
-        "series_id": None,
-        "category": category,
-        "reason": f"Standalone video in category '{category}'.",
-        "start_new_series": False,
-    }
+    return {"action": "new_content", "series_id": None, "category": category, "reason": f"Standalone video in category '{category}'.", "start_new_series": False}
 
 
 if __name__ == "__main__":
     mem.init_db()
     with mem.get_conn() as conn:
-        print("Decision:", decide_next_video(conn, is_short=True))
+        print("Decision:", decide_next_video(conn))
