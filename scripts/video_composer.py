@@ -280,19 +280,26 @@ def compose(video_id: int) -> Path:
 
     if bgm_track:
         # BGM mixed at 12% volume with 1.0s fade-in and 1.5s fade-out.
-        # narration (from avatar) stays at 100% as the lead audio.
-        # amix with duration=shortest trims BGM to match video length exactly.
-        bgm_track_str = str(bgm_track).replace("\\", "/")
+        # Narration (from avatar) stays at 100% as the lead audio.
+        #
+        # FIX: Use amix=duration=first so the mix always follows the
+        # narration length — NOT the BGM length. This prevents the short
+        # BGM clip from cutting the video off early.
+        # -stream_loop -1 on the BGM input loops it if the video is longer
+        # than the track (handles all track lengths gracefully).
+        # -shortest is NOT used here — amix=first already terminates correctly.
+        afade_out_start = max(0.0, total_audio_duration - 1.5)
         audio_filter = (
             f"[1:a]volume=1.0[narration];"
-            f"[2:a]volume=0.12,afade=t=in:st=0:d=1.0,afade=t=out:st={max(0, total_audio_duration - 1.5):.2f}:d=1.5[bgm];"
-            f"[narration][bgm]amix=inputs=2:duration=shortest:normalize=0[audio_out]"
+            f"[2:a]volume=0.12,afade=t=in:st=0:d=1.0,afade=t=out:st={afade_out_start:.2f}:d=1.5[bgm];"
+            f"[narration][bgm]amix=inputs=2:duration=first:normalize=0[audio_out]"
         )
         final_cmd = [
             ffmpeg_bin, "-y",
             "-i", str(bg_video_path),
             "-i", str(avatar_path),
-            "-i", str(bgm_track),          # Input 2: BGM track
+            "-stream_loop", "-1",              # loop BGM so it's never shorter than the video
+            "-i", str(bgm_track),              # Input 2: BGM track
             "-filter_complex", comp_filter + ";" + audio_filter,
             "-map", "[v_out]",
             "-map", "[audio_out]",
@@ -301,10 +308,10 @@ def compose(video_id: int) -> Path:
             "-crf", "20",
             "-c:a", "aac",
             "-b:a", "192k",
-            "-shortest",
             str(out_video_path)
         ]
-        print(f"[video_composer] Mixing BGM at 12% volume: {bgm_track.name}")
+        print(f"[video_composer] Mixing BGM at 12% volume: {bgm_track.name} (afade-out at {afade_out_start:.2f}s)")
+
     else:
         # No BGM available — passthrough narration only
         final_cmd = [
