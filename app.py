@@ -64,9 +64,46 @@ def ensure_baseline_templates():
         except Exception as e:
             print(f"[HF-Space] Warning downloading logo: {e}")
 
+
+def ensure_bg_music_assets():
+    """Auto-downloads royalty-free BGM tracks from GitHub Release on startup."""
+    base_release_url = "https://github.com/1919-14/YT-Automation-Hosted/releases/download/audio"
+    
+    music_manifest = {
+        "horror": [
+            "AETHER.-.Density.Time.mp3",
+            "Glimpsing.Infinity.-.Asher.Fulero.mp3",
+            "Lake.Jupiter.-.John.Patitucci.mp3",
+            "Twin.Lynches.-.Density.Time.mp3",
+        ],
+        "mystery_facts": [
+            "Dead.Alive.feat.Nyles.Lannon.-.Blue.Deer.Studio.mp3",
+            "Deep.Space.Sector.9.-.Ezra.Lipp.mp3",
+            "Ether.Real.-.Density.Time.mp3",
+        ],
+    }
+    
+    for category, filenames in music_manifest.items():
+        cat_dir = Path("assets/audio/bg_music") / category
+        cat_dir.mkdir(parents=True, exist_ok=True)
+        
+        for fname in filenames:
+            dest_file = cat_dir / fname
+            if not dest_file.exists() or dest_file.stat().st_size == 0:
+                download_url = f"{base_release_url}/{fname}"
+                try:
+                    print(f"[HF-Space] Downloading BGM track ({category}): {fname} ...")
+                    req = urllib.request.Request(download_url, headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req) as resp, open(dest_file, "wb") as out_f:
+                        shutil.copyfileobj(resp, out_f)
+                    print(f"[HF-Space] Downloaded {fname} ({dest_file.stat().st_size} bytes)")
+                except Exception as e:
+                    print(f"[HF-Space] Warning downloading BGM {fname}: {e}")
+
 from scripts import config, memory, daily_scheduler
 
 ensure_baseline_templates()
+ensure_bg_music_assets()
 memory.init_db()
 daily_scheduler.start_scheduler()
 
