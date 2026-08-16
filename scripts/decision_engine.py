@@ -17,6 +17,18 @@ from .categories import list_categories, get_category_config
 
 STALE_DAYS_THRESHOLD = 1          # active series continues after 1 day threshold
 NEW_SERIES_PROBABILITY = 0.6      # balanced 60% chance for new multi-part series
+SERIES_MAX_PARTS = 2              # hard cap: force conclude after Part 2 (data: Part 3+ avg <10 views)
+
+# Pre-strategy category weights based on 48-video telemetry (Aug 2026):
+# facts (Mind-Bending Science & Nature) → avg 733 views → 50% weight
+# mystery (Unexplained Real Mysteries)  → avg 473 views → 35% weight
+# horror (Psychological Suspense)       → avg 385 views → 15% weight
+# motivational / abstract               → avg <10 views → BANNED
+CATEGORY_WEIGHTS = {
+    "facts":   50,
+    "mystery": 35,
+    "horror":  15,
+}
 
 
 def _days_since(iso_timestamp):
@@ -29,13 +41,16 @@ def _days_since(iso_timestamp):
 
 
 def _pick_category(conn, exclude_last_n=2):
-    """Weighted-random category pick, avoiding the last N categories
+    """Weighted-random category pick from the approved 3 niches only
+    (facts 50%, mystery 35%, horror 15%), avoiding the last N categories
     posted so we don't repeat the same theme back to back."""
     recent = set(mem.recent_categories(conn, limit=exclude_last_n))
-    candidates = [c for c in list_categories() if c not in recent]
+    candidates = {k: v for k, v in CATEGORY_WEIGHTS.items() if k not in recent}
     if not candidates:
-        candidates = list_categories()
-    return random.choice(candidates)
+        candidates = dict(CATEGORY_WEIGHTS)  # reset exclusion if all are excluded
+    population = list(candidates.keys())
+    weights = list(candidates.values())
+    return random.choices(population, weights=weights, k=1)[0]
 
 
 def _judge_continue_or_conclude(series):
@@ -84,6 +99,14 @@ def decide_next_video(conn):
 
     if stale_candidates:
         target = stale_candidates[0]
+        # Enforce hard 2-part series cap before asking the LLM
+        if target.get("current_part", 0) >= SERIES_MAX_PARTS:
+            return {
+                "action": "conclude_series",
+                "series_id": target["series_id"],
+                "category": target["category"],
+                "reason": f"Series reached {SERIES_MAX_PARTS}-part cap — auto-concluding (channel data: Part 3+ avg <10 views).",
+            }
         judgment = _judge_continue_or_conclude(target)
         action = "continue_series" if judgment["action"] == "continue" else "conclude_series"
         return {
@@ -97,12 +120,16 @@ def decide_next_video(conn):
     # (not every run needs to start something new).
     if active_series and random.random() < 0.4:
         target = active_series[0]
-        return {
-            "action": "continue_series",
-            "series_id": target["series_id"],
-            "category": target["category"],
-            "reason": "Active series continuing on normal cadence.",
-        }
+        # Enforce hard 2-part series cap
+        if target.get("current_part", 0) >= SERIES_MAX_PARTS:
+            pass  # fall through to new_content instead
+        else:
+            return {
+                "action": "continue_series",
+                "series_id": target["series_id"],
+                "category": target["category"],
+                "reason": "Active series continuing on normal cadence.",
+            }
 
     # Otherwise: new content. Decide category, then decide if it
     # kicks off a new series or stays standalone.

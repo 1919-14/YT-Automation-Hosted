@@ -111,6 +111,7 @@ def process_video(video_id, conn=None, style_override=None):
         "video_id": video_id,
         "background_style": background_style,
         "format": format_,
+        "category": row["category"] if row["category"] else None,   # used by video_composer for BGM selection
         "avatar_enabled": True,
         "shots": shots,
         "overlay_avatar": {

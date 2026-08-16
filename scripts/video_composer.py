@@ -14,12 +14,42 @@ Output:
 
 import json
 import os
+import random
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 from . import config
+
+# ── BGM Track Picker ───────────────────────────────────────────────────────────
+
+# Map content categories → BGM subfolder
+_CATEGORY_TO_BGM_FOLDER = {
+    "horror":      "horror",
+    "mystery":     "horror",       # mystery also uses dark atmospheric tracks
+    "facts":       "mystery_facts",
+    "motivational":"mystery_facts", # fallback — motivational is banned but keep safe
+}
+_BGM_BASE = config.ASSETS_DIR / "audio" / "bg_music"
+
+
+def _pick_bgm_track(category: str | None) -> Path | None:
+    """Returns a random .mp3 file path from the appropriate BGM subfolder,
+    or None if the folder is empty / missing (graceful no-BGM fallback)."""
+    folder_name = _CATEGORY_TO_BGM_FOLDER.get(category or "", "horror")
+    folder = _BGM_BASE / folder_name
+    if not folder.exists():
+        print(f"[video_composer] BGM folder not found: {folder} — skipping BGM.")
+        return None
+    tracks = list(folder.glob("*.mp3"))
+    if not tracks:
+        print(f"[video_composer] No .mp3 files in {folder} — skipping BGM.")
+        return None
+    chosen = random.choice(tracks)
+    print(f"[video_composer] BGM track selected: {chosen.name} (folder: {folder_name})")
+    return chosen
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -112,7 +142,7 @@ def compose(video_id: int) -> Path:
     Composites video N:
       1. Sequences background images to 1080x1920 vertical format.
       2. Overlays video_N_avatar.mp4 in bottom-left corner with circular mask (420x420).
-      3. Passes through narration audio directly from video_N_avatar.mp4.
+      3. Mixes narration audio (100% vol) with atmospheric BGM bed (12% vol, fade in/out).
       4. Burns in karaoke subtitles (sentence white, spoken word yellow).
     """
     manifest_path = config.ASSETS_DIR / "visuals" / f"video_{video_id}_manifest.json"
@@ -230,6 +260,10 @@ def compose(video_id: int) -> Path:
     # 4. Composite Avatar Overlay (Bottom-Left Circular Badge) + Subtitles + Audio
     print(f"[video_composer] Compositing bottom-left circular avatar badge & karaoke subtitles ...")
 
+    # Pick BGM track based on manifest category (graceful no-BGM fallback if missing)
+    content_category = manifest.get("category", None)
+    bgm_track = _pick_bgm_track(content_category)
+
     # Escaped ASS path for ffmpeg filter syntax (Windows backslashes need escaping)
     ass_path_str = str(ass_path).replace("\\", "/").replace(":", "\\:")
 
@@ -244,22 +278,51 @@ def compose(video_id: int) -> Path:
         f"[v_overlay]ass='{ass_path_str}'[v_out]"
     )
 
-
-    final_cmd = [
-        ffmpeg_bin, "-y",
-        "-i", str(bg_video_path),
-        "-i", str(avatar_path),
-        "-filter_complex", comp_filter,
-        "-map", "[v_out]",
-        "-map", "1:a",                  # Direct audio passthrough from avatar video
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "20",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        str(out_video_path)
-    ]
+    if bgm_track:
+        # BGM mixed at 12% volume with 1.0s fade-in and 1.5s fade-out.
+        # narration (from avatar) stays at 100% as the lead audio.
+        # amix with duration=shortest trims BGM to match video length exactly.
+        bgm_track_str = str(bgm_track).replace("\\", "/")
+        audio_filter = (
+            f"[1:a]volume=1.0[narration];"
+            f"[2:a]volume=0.12,afade=t=in:st=0:d=1.0,afade=t=out:st={max(0, total_audio_duration - 1.5):.2f}:d=1.5[bgm];"
+            f"[narration][bgm]amix=inputs=2:duration=shortest:normalize=0[audio_out]"
+        )
+        final_cmd = [
+            ffmpeg_bin, "-y",
+            "-i", str(bg_video_path),
+            "-i", str(avatar_path),
+            "-i", str(bgm_track),          # Input 2: BGM track
+            "-filter_complex", comp_filter + ";" + audio_filter,
+            "-map", "[v_out]",
+            "-map", "[audio_out]",
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "20",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            str(out_video_path)
+        ]
+        print(f"[video_composer] Mixing BGM at 12% volume: {bgm_track.name}")
+    else:
+        # No BGM available — passthrough narration only
+        final_cmd = [
+            ffmpeg_bin, "-y",
+            "-i", str(bg_video_path),
+            "-i", str(avatar_path),
+            "-filter_complex", comp_filter,
+            "-map", "[v_out]",
+            "-map", "1:a",                  # Direct audio passthrough from avatar video
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "20",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            str(out_video_path)
+        ]
+        print(f"[video_composer] No BGM — using narration audio only.")
 
     subprocess.check_call(final_cmd)
     print(f"[video_composer] FINAL SHORTS VIDEO GENERATED: {out_video_path}")

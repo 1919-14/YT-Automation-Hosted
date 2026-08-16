@@ -2,11 +2,12 @@
 daily_scheduler.py — 24/7 Real-Time Auto-Pilot Engine for YT-Automation-Hosted.
 
 Features:
-  - 6 Fixed Global Time Windows (UTC/IST/EST overlap targeting India & US).
+  - 3 Peak Performance Time Windows (UTC) based on channel telemetry data.
   - Deterministic Daily Organic Random Minute Picker (unique per slot per day).
   - Persistent 24/7 Daemon Loop: logs heartbeats & checks trigger times every 30s
     to keep HF Space active and prevent container sleep.
-  - Executes live video creation using Pexels stock video mode (style="pexels").
+  - Executes live SHORT video creation using Pexels stock video mode (style="pexels").
+  - Long-form video generation DISABLED — channel data shows Shorts drive 98% of traffic.
 """
 
 import datetime
@@ -17,21 +18,18 @@ from pathlib import Path
 
 from . import config, memory, orchestrator
 
-# ── 6 Fixed Global Windows (UTC) ──────────────────────────────────────────────
-# Slot 1: Short #1 | 01:30–03:30 UTC | 07:00–09:00 IST (India Morning)
-# Slot 2: Short #2 | 07:30–09:30 UTC | 13:00–15:00 IST (India Lunch)
-# Slot 3: Long #1  | 11:30–13:30 UTC | 17:00–19:00 IST / 07:30–09:30 EST (Long Anchor)
-# Slot 4: Short #3 | 14:00–16:00 UTC | 19:30–21:30 IST / 10:00–12:00 EST (Golden Overlap)
-# Slot 5: Short #4 | 17:00–19:00 UTC | 22:30–00:30 IST / 13:00–15:00 EST (Bedtime / US Lunch)
-# Slot 6: Short #5 | 21:00–23:00 UTC | 02:30–04:30 IST / 17:00–19:00 EST (US Evening)
+# ── 3 Peak Performance Windows (UTC) ─────────────────────────────────────────
+# Strategy: 3 High-Impact Shorts Only — based on 48-video channel telemetry.
+# Eliminated: quiet slots that averaged <100 views (13–19 UTC dead zone).
+#
+# Slot 1: Short #1 | 03:00–04:30 UTC | 08:30–10:00 IST (India Morning Gold — avg 830 views)
+# Slot 2: Short #2 | 08:15–09:30 UTC | 13:45–15:00 IST (India Lunch + Europe Afternoon)
+# Slot 3: Short #3 | 21:15–22:30 UTC | 02:45–04:00 IST (US Evening Peak — avg 387 views)
 
 SLOT_DEFINITIONS = [
-    {"slot_id": 1, "is_short": True,  "name": "Short #1 (India Morning)",     "start_hour": 1,  "start_min": 30, "window_mins": 120},
-    {"slot_id": 2, "is_short": True,  "name": "Short #2 (India Lunch)",       "start_hour": 7,  "start_min": 30, "window_mins": 120},
-    {"slot_id": 3, "is_short": False, "name": "Long Video (Global Anchor)",   "start_hour": 11, "start_min": 30, "window_mins": 120},
-    {"slot_id": 4, "is_short": True,  "name": "Short #3 (Golden Overlap)",   "start_hour": 14, "start_min": 0,  "window_mins": 120},
-    {"slot_id": 5, "is_short": True,  "name": "Short #4 (US Lunch/IN Night)", "start_hour": 17, "start_min": 0,  "window_mins": 120},
-    {"slot_id": 6, "is_short": True,  "name": "Short #5 (US Evening Peak)",   "start_hour": 21, "start_min": 0,  "window_mins": 120},
+    {"slot_id": 1, "is_short": True, "name": "Short #1 (India Morning Gold)", "start_hour": 3,  "start_min": 0,  "window_mins": 90},
+    {"slot_id": 2, "is_short": True, "name": "Short #2 (India Lunch/Europe)", "start_hour": 8,  "start_min": 15, "window_mins": 75},
+    {"slot_id": 3, "is_short": True, "name": "Short #3 (US Evening Peak)",   "start_hour": 21, "start_min": 15, "window_mins": 75},
 ]
 
 # ── Global State ──────────────────────────────────────────────────────────────
@@ -67,7 +65,7 @@ def is_slot_completed(date_str: str, slot_id: int) -> bool:
 
 def compute_daily_schedule(target_date: datetime.date = None) -> list[dict]:
     """
-    Computes the 6 target slot trigger times for target_date (UTC).
+    Computes the 3 peak slot trigger times for target_date (UTC).
     Uses a deterministic daily seed so trigger minutes remain consistent for the day
     across container restarts, but change randomly every day.
     """
@@ -240,7 +238,7 @@ if __name__ == "__main__":
     if args.trigger_now:
         trigger_next_slot_now(is_short=True)
     else:
-        print("=== Daily 6-Slot Schedule Preview (Today) ===")
+        print("=== Daily 3-Slot Peak Schedule Preview (Today) ===")
         sched = compute_daily_schedule()
         for s in sched:
             print(f"Slot {s['slot_id']} | {s['format_label']:<15} | {s['utc_str']:<10} | {s['ist_str']:<14} | {s['est_str']:<14} | {s['name']}")
