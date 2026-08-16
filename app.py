@@ -8,6 +8,7 @@ directly from the browser. No Telegram or outbound connections required.
 import os
 import sys
 import time
+import shutil
 import threading
 import datetime
 from pathlib import Path
