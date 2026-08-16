@@ -82,6 +82,43 @@ def _build_shot_from_segment(shot_id, segment, visual_prompt=None):
 
 
 # ---------------------------------------------------------------------------
+# Visual Pacing — Retention Optimization
+# ---------------------------------------------------------------------------
+# 2026 algorithm recommendation: switch visuals every 1.5–2.5 seconds to
+# maintain viewer attention and prevent "drift". Segments longer than this
+# cap are automatically subdivided into equal-length sub-shots, each reusing
+# the same visual prompt / pexels query (the background clip is simply held
+# for a shorter cut, driving faster perceived pacing).
+MAX_SHOT_DURATION = 2.5  # seconds — hard cap per visual cut
+
+
+def _split_long_shot(shot: dict) -> list[dict]:
+    """If a shot is longer than MAX_SHOT_DURATION, split it into N equal
+    sub-shots. Each sub-shot inherits the parent's prompts and queries.
+    Returns a list of 1+ shot dicts (unmodified single-shot list if already short)."""
+    total = shot["end_time"] - shot["start_time"]
+    if total <= MAX_SHOT_DURATION:
+        return [shot]
+
+    n = max(2, int(total / MAX_SHOT_DURATION) + (1 if total % MAX_SHOT_DURATION else 0))
+    sub_duration = total / n
+    result = []
+    for i in range(n):
+        sub_start = round(shot["start_time"] + i * sub_duration, 3)
+        sub_end = round(shot["start_time"] + (i + 1) * sub_duration, 3)
+        result.append({
+            "shot_id": None,          # will be renumbered below
+            "start_time": sub_start,
+            "end_time": sub_end,
+            "duration": round(sub_end - sub_start, 3),
+            "bg_prompt": shot["bg_prompt"],
+            "pexels_query": shot["pexels_query"],
+            "segment_text": shot["segment_text"],
+        })
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -105,12 +142,24 @@ def build_visual_plan(video_id, script_json, timestamps, background_style, avata
         if narration and vp:
             scene_prompt_map[narration] = vp
 
-    shots = []
+    raw_shots = []
     for i, seg in enumerate(timestamps, start=1):
         if seg.get("start") is None:
             continue  # skip empty/unmapped segments
         vp = scene_prompt_map.get(seg["text"])  # may be None for hook/ending/cta
-        shots.append(_build_shot_from_segment(i, seg, visual_prompt=vp))
+        raw_shots.append(_build_shot_from_segment(i, seg, visual_prompt=vp))
+
+    # Apply pacing cap — subdivide any shot longer than MAX_SHOT_DURATION
+    paced_shots = []
+    for shot in raw_shots:
+        paced_shots.extend(_split_long_shot(shot))
+
+    # Renumber shot_ids sequentially after subdivision
+    for idx, shot in enumerate(paced_shots, start=1):
+        shot["shot_id"] = idx
+
+    shots = paced_shots
+    print(f"[visuals_planner] {len(raw_shots)} raw segments → {len(shots)} paced shots (max {MAX_SHOT_DURATION}s/cut)")
 
     plan = {
         "video_id": video_id,
@@ -132,6 +181,7 @@ def build_visual_plan(video_id, script_json, timestamps, background_style, avata
         json.dump(plan, f, indent=2)
 
     return plan, plan_path
+
 
 
 if __name__ == "__main__":
