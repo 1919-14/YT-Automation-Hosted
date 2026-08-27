@@ -71,8 +71,11 @@ def get_authenticated_service():
             try:
                 print("[youtube_uploader] Refreshing expired OAuth token ...")
                 creds.refresh(Request())
-            except Exception:
-                print("[youtube_uploader] Token refresh failed. Re-authenticating...")
+                # Save refreshed token back to disk
+                with open(TOKEN_FILE, "w") as token:
+                    token.write(creds.to_json())
+            except Exception as e:
+                print(f"[youtube_uploader] Token refresh failed ({e}). Re-authenticating...")
                 creds = None
 
         if not creds:
@@ -85,7 +88,7 @@ def get_authenticated_service():
 
             print(f"[youtube_uploader] Opening browser for YouTube OAuth login ...")
             flow = InstalledAppFlow.from_client_secrets_file(str(CLIENT_SECRET_FILE), SCOPES)
-            creds = flow.run_local_server(port=0)
+            creds = flow.run_local_server(port=0, prompt="consent", access_type="offline")
 
         # Save credentials for future runs
         TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
