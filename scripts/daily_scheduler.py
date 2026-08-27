@@ -18,13 +18,6 @@ from pathlib import Path
 
 from . import config, memory, orchestrator
 
-# ── Backlog Upload Gap ─────────────────────────────────────────────────────────
-# Minimum gap between auto-uploads of backlogged (rendered/thumbnail_done) videos.
-# 60 minutes keeps us well within YouTube's daily upload quota and avoids spam detection.
-BACKLOG_UPLOAD_GAP_MINUTES = 60
-
-_BACKLOG_THREAD: threading.Thread | None = None
-
 # ── 3 Peak Performance Windows (UTC) ─────────────────────────────────────────
 # Strategy: 3 High-Impact Shorts Only — based on 48-video channel telemetry.
 # Eliminated: quiet slots that averaged <100 views (13–19 UTC dead zone).
@@ -200,75 +193,6 @@ def _scheduler_loop():
         time.sleep(30)
 
 
-def _backlog_upload_loop():
-    """Background thread: finds all videos stuck at 'rendered' or 'thumbnail_done'
-    (i.e., fully produced but never uploaded due to auth failures) and uploads
-    them one by one with a BACKLOG_UPLOAD_GAP_MINUTES gap between each.
-
-    Sleeps on startup to let the main scheduler + DB restore finish first,
-    then runs immediately.
-    """
-    from . import upload_stage  # lazy import to avoid circular deps at module load
-
-    # Wait 2 minutes after startup before scanning — let DB restore & scheduler settle
-    time.sleep(120)
-
-    while True:
-        try:
-            with memory.get_conn() as conn:
-                backlog = conn.execute(
-                    """
-                    SELECT video_id, title, video_path, status
-                    FROM videos
-                    WHERE status IN ('rendered', 'thumbnail_done')
-                      AND video_path IS NOT NULL
-                    ORDER BY video_id ASC
-                    """
-                ).fetchall()
-
-            if not backlog:
-                # No backlog — check again in 10 minutes
-                time.sleep(600)
-                continue
-
-            print(f"\n[backlog] 📦 Found {len(backlog)} video(s) waiting for upload.")
-            for row in backlog:
-                vid = row['video_id']
-                title = row['title']
-                vpath = row['video_path']
-
-                # Double-check the video file actually exists on disk
-                if not vpath or not Path(vpath).exists():
-                    print(f"[backlog] ⚠️  video_{vid} file missing on disk ({vpath}) — skipping.")
-                    continue
-
-                print(f"\n[backlog] ⬆️  Uploading backlogged video_{vid}: '{title}'")
-                try:
-                    upload_stage.process_video(video_id=vid, privacy="public")
-                    print(f"[backlog] ✅ video_{vid} uploaded successfully!")
-                except Exception as e:
-                    print(f"[backlog] ❌ video_{vid} upload failed: {e}")
-
-                # Wait BACKLOG_UPLOAD_GAP_MINUTES between uploads (handles day rollover naturally)
-                gap_secs = BACKLOG_UPLOAD_GAP_MINUTES * 60
-                next_upload_utc = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=gap_secs)
-                print(f"[backlog] ⏳ Next backlog upload at {next_upload_utc.strftime('%Y-%m-%d %H:%M UTC')} ({BACKLOG_UPLOAD_GAP_MINUTES}min gap)")
-                time.sleep(gap_secs)
-
-        except Exception as e:
-            print(f"[backlog] Loop error: {e}")
-            time.sleep(300)  # retry in 5 min on unexpected errors
-
-
-def start_backlog_uploader():
-    """Starts the one-per-hour backlog upload drainer as a background daemon thread."""
-    global _BACKLOG_THREAD
-    if _BACKLOG_THREAD is None or not _BACKLOG_THREAD.is_alive():
-        _BACKLOG_THREAD = threading.Thread(target=_backlog_upload_loop, daemon=True, name="BacklogUploader")
-        _BACKLOG_THREAD.start()
-        print("[backlog] 📦 Backlog upload drainer started (1-hour gap between uploads).")
-
-
 def start_scheduler():
     """Starts the 24/7 background scheduler thread if not already running."""
     # Guarantee memory DB & Supabase cloud restore complete FIRST before scheduler runs
@@ -280,9 +204,6 @@ def start_scheduler():
             _SCHEDULER_THREAD = threading.Thread(target=_scheduler_loop, daemon=True)
             _SCHEDULER_THREAD.start()
             print("[scheduler] Background daemon thread launched.")
-
-    # Also launch the backlog uploader to drain any stuck rendered videos
-    start_backlog_uploader()
 
 
 
